@@ -79,6 +79,9 @@ public inherited sharing class PaymentEventPayload {
       asMap(envelope.get('data'))?.get('object')
     );
     if (dataObject == null) {
+      if (payload.isPayment() || payload.isRefund()) {
+        throw new PayloadException('missing_data_object');
+      }
       return payload;
     }
     payload.objectId = asString(dataObject.get('id'));

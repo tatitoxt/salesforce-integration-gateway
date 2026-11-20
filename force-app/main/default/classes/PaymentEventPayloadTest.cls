@@ -56,7 +56,9 @@ private class PaymentEventPayloadTest {
       '{"id":"evt","type":"payment_intent.succeeded","data":{"object":{"id":"pi"}}}' => 'missing_amount',
       '{"id":"evt","type":"payment_intent.succeeded","data":{"object":{"id":"pi","amount":-1}}}' => 'invalid_amount',
       '{"id":"evt","type":"payment_intent.succeeded","data":{"object":{"id":"pi","amount":"10"}}}' => 'invalid_amount',
-      '{"id":"evt","type":"refund.created","data":{"object":{"amount":10}}}' => 'missing_object_id'
+      '{"id":"evt","type":"refund.created","data":{"object":{"amount":10}}}' => 'missing_object_id',
+      '{"id":"evt","type":"payment_intent.succeeded","data":{}}' => 'missing_data_object',
+      '{"id":"evt","type":"refund.created"}' => 'missing_data_object'
     };
     for (String body : cases.keySet()) {
       try {
