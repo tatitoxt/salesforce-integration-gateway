@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<CustomField xmlns="http://soap.sforce.com/2006/04/metadata">
+  <fullName>Invoice_Number__c</fullName>
+  <description>
+    Business key referenced by payment metadata.invoice_number.
+  </description>
+  <label>Invoice Number</label>
+  <required>false</required>
+  <externalId>true</externalId>
+  <caseSensitive>false</caseSensitive>
+  <length>40</length>
+  <type>Text</type>
+  <unique>true</unique>
+</CustomField>
