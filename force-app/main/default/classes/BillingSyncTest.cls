@@ -215,8 +215,10 @@ private class BillingSyncTest {
         new Invoice__c(Id = invoiceId, Billing_Sync_Status__c = 'Synced')
       );
     }
-    Invoice__c changed = sent.values()[0].clone(true);
-    changed.Amount_Paid__c = 40;
+    Invoice__c changed = new Invoice__c(
+      Id = sent.values()[0].Id,
+      Amount_Paid__c = 40
+    );
     TriggerHandler.bypass('InvoiceTriggerHandler');
     update changed;
     TriggerHandler.clearBypass('InvoiceTriggerHandler');
