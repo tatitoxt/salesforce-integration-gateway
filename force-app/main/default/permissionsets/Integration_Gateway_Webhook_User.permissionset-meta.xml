@@ -5,8 +5,9 @@
     <enabled>true</enabled>
   </classAccesses>
   <description>
-    Integration user that receives processor webhooks and runs async
-    processing / billing sync.
+    Integration user that calls the signed webhook endpoint. Read-only on
+    Payment_Event__c so events can only be created through signature
+    verification, never by direct API inserts.
   </description>
   <externalCredentialPrincipalAccesses>
     <enabled>true</enabled>
@@ -15,81 +16,81 @@
     </externalCredentialPrincipal>
   </externalCredentialPrincipalAccesses>
   <fieldPermissions>
-    <editable>true</editable>
+    <editable>false</editable>
     <field>Payment_Event__c.Amount__c</field>
     <readable>true</readable>
   </fieldPermissions>
   <fieldPermissions>
-    <editable>true</editable>
+    <editable>false</editable>
     <field>Payment_Event__c.Attempts__c</field>
     <readable>true</readable>
   </fieldPermissions>
   <fieldPermissions>
-    <editable>true</editable>
+    <editable>false</editable>
     <field>Payment_Event__c.Currency_Code__c</field>
     <readable>true</readable>
   </fieldPermissions>
   <fieldPermissions>
-    <editable>true</editable>
+    <editable>false</editable>
     <field>Payment_Event__c.Event_Created_At__c</field>
     <readable>true</readable>
   </fieldPermissions>
   <fieldPermissions>
-    <editable>true</editable>
+    <editable>false</editable>
     <field>Payment_Event__c.Event_Type__c</field>
     <readable>true</readable>
   </fieldPermissions>
   <fieldPermissions>
-    <editable>true</editable>
+    <editable>false</editable>
     <field>Payment_Event__c.Exception_Reason__c</field>
     <readable>true</readable>
   </fieldPermissions>
   <fieldPermissions>
-    <editable>true</editable>
+    <editable>false</editable>
     <field>Payment_Event__c.External_Event_Id__c</field>
     <readable>true</readable>
   </fieldPermissions>
   <fieldPermissions>
-    <editable>true</editable>
+    <editable>false</editable>
     <field>Payment_Event__c.Invoice_Reference__c</field>
     <readable>true</readable>
   </fieldPermissions>
   <fieldPermissions>
-    <editable>true</editable>
+    <editable>false</editable>
     <field>Payment_Event__c.Last_Error__c</field>
     <readable>true</readable>
   </fieldPermissions>
   <fieldPermissions>
-    <editable>true</editable>
+    <editable>false</editable>
     <field>Payment_Event__c.Next_Attempt_At__c</field>
     <readable>true</readable>
   </fieldPermissions>
   <fieldPermissions>
-    <editable>true</editable>
+    <editable>false</editable>
     <field>Payment_Event__c.Payload__c</field>
     <readable>true</readable>
   </fieldPermissions>
   <fieldPermissions>
-    <editable>true</editable>
+    <editable>false</editable>
     <field>Payment_Event__c.Processed_At__c</field>
     <readable>true</readable>
   </fieldPermissions>
   <fieldPermissions>
-    <editable>true</editable>
+    <editable>false</editable>
     <field>Payment_Event__c.Signature_Timestamp__c</field>
     <readable>true</readable>
   </fieldPermissions>
   <fieldPermissions>
-    <editable>true</editable>
+    <editable>false</editable>
     <field>Payment_Event__c.Status__c</field>
     <readable>true</readable>
   </fieldPermissions>
   <hasActivationRequired>false</hasActivationRequired>
   <label>Integration Gateway Webhook User</label>
   <objectPermissions>
-    <allowCreate>true</allowCreate>
+    <allowCreate>false</allowCreate>
     <allowDelete>false</allowDelete>
-    <allowEdit>true</allowEdit>
+    <allowEdit>false</allowEdit>
     <allowRead>true</allowRead>
     <modifyAllRecords>false</modifyAllRecords>
     <object>Payment_Event__c</object>
