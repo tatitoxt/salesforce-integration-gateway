@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<CustomApplication xmlns="http://soap.sforce.com/2006/04/metadata">
+  <description>Payment webhook reconciliation and billing sync.</description>
+  <formFactors>Large</formFactors>
+  <isNavAutoSaveDisabled>false</isNavAutoSaveDisabled>
+  <isNavPersonalizationDisabled>false</isNavPersonalizationDisabled>
+  <label>Integration Gateway</label>
+  <navType>Standard</navType>
+  <tabs>Reconciliation_Console</tabs>
+  <tabs>Invoice__c</tabs>
+  <tabs>Payment__c</tabs>
+  <tabs>Payment_Event__c</tabs>
+  <uiType>Lightning</uiType>
+</CustomApplication>
