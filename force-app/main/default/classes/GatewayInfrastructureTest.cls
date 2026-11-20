@@ -78,6 +78,31 @@ private class GatewayInfrastructureTest {
   }
 
   @IsTest
+  static void changingInvoiceTotalRecomputesStatusAndFlagsBillingSync() {
+    GatewayTestData.configure(true);
+    Invoice__c invoice = GatewayTestData.invoices(1, 100, 'USD')[0];
+    insert new Payment__c(
+      External_Payment_Id__c = 'pi_total_edit',
+      Invoice__c = invoice.Id,
+      Type__c = 'Payment',
+      Status__c = 'Applied',
+      Amount__c = 100,
+      Currency_Code__c = 'USD'
+    );
+    Invoice__c paid = GatewayTestData.reloadInvoice(invoice.Id);
+    Assert.areEqual('Paid', paid.Status__c);
+    TriggerHandler.bypass('InvoiceTriggerHandler');
+    update new Invoice__c(Id = invoice.Id, Billing_Sync_Status__c = 'Synced');
+    TriggerHandler.clearBypass('InvoiceTriggerHandler');
+
+    update new Invoice__c(Id = invoice.Id, Total_Amount__c = 150);
+
+    Invoice__c updated = GatewayTestData.reloadInvoice(invoice.Id);
+    Assert.areEqual('Partially_Paid', updated.Status__c);
+    Assert.areEqual('Pending', updated.Billing_Sync_Status__c);
+  }
+
+  @IsTest
   static void deletingAndRestoringPaymentRecalculatesInvoice() {
     GatewayTestData.configure(false);
     Invoice__c invoice = GatewayTestData.invoices(1, 100, 'USD')[0];

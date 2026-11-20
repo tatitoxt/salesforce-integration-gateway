@@ -60,8 +60,7 @@ public inherited sharing class InvoiceRollupService {
     update changed;
   }
 
-  @TestVisible
-  private static String statusFor(String current, Decimal total, Decimal net) {
+  public static String statusFor(String current, Decimal total, Decimal net) {
     if (current == 'Draft' || current == 'Void') {
       return current;
     }

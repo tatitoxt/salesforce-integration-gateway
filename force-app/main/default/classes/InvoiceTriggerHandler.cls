@@ -11,6 +11,16 @@ public inherited sharing class InvoiceTriggerHandler extends TriggerHandler {
     List<SObject> records,
     Map<Id, SObject> oldRecordsById
   ) {
+    for (Invoice__c invoice : (List<Invoice__c>) records) {
+      Invoice__c old = (Invoice__c) oldRecordsById.get(invoice.Id);
+      if (invoice.Total_Amount__c != old.Total_Amount__c) {
+        invoice.Status__c = InvoiceRollupService.statusFor(
+          invoice.Status__c,
+          invoice.Total_Amount__c,
+          invoice.Amount_Paid__c == null ? 0 : invoice.Amount_Paid__c
+        );
+      }
+    }
     if (!GatewaySettings.billingSyncEnabled()) {
       return;
     }
