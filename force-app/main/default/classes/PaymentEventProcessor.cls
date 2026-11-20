@@ -4,7 +4,9 @@
  * Runs in system mode: it is an integration job, not a user action.
  */
 public without sharing class PaymentEventProcessor implements Queueable {
-  public static final Integer BATCH_SIZE = 200;
+  // Bounded by heap, not row count: 50 x 64 KB payloads stay well below the
+  // 12 MB async heap limit including parsed JSON.
+  public static final Integer BATCH_SIZE = 50;
 
   public void execute(QueueableContext context) {
     run();
