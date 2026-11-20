@@ -1,0 +1,148 @@
+<template>
+  <lightning-card title="Payment reconciliation" icon-name="custom:custom19">
+    <div class="slds-p-horizontal_medium">
+      <lightning-checkbox-group
+        data-id="status-filter"
+        name="status"
+        label="Show events with status"
+        options={statusOptions}
+        value={selectedStatuses}
+        onchange={handleStatusChange}
+      ></lightning-checkbox-group>
+
+      <template lwc:if={error}>
+        <p
+          data-id="queue-error"
+          class="slds-text-color_error slds-m-vertical_small"
+        >
+          {error}
+        </p>
+      </template>
+
+      <template lwc:if={hasEvents}>
+        <p
+          data-id="queue-count"
+          class="slds-text-body_small slds-m-vertical_x-small"
+        >
+          {queueSummary}
+        </p>
+        <lightning-datatable
+          data-id="queue"
+          key-field="Id"
+          data={events}
+          columns={columns}
+          hide-checkbox-column
+          onrowaction={handleRowAction}
+        ></lightning-datatable>
+      </template>
+      <template lwc:else>
+        <p data-id="queue-empty" class="slds-m-vertical_small">
+          No events need attention.
+        </p>
+      </template>
+
+      <template lwc:if={detail}>
+        <section data-id="detail" class="slds-box slds-m-top_medium">
+          <div class="slds-grid slds-grid_align-spread">
+            <h2 data-id="detail-title" class="slds-text-heading_small">
+              {detailTitle}
+            </h2>
+            <lightning-button-icon
+              data-id="close-detail"
+              icon-name="utility:close"
+              alternative-text="Close"
+              onclick={handleCloseDetail}
+            ></lightning-button-icon>
+          </div>
+          <dl class="slds-dl_horizontal slds-m-vertical_small">
+            <dt class="slds-dl_horizontal__label">Status</dt>
+            <dd data-id="detail-status" class="slds-dl_horizontal__detail">
+              {detailEvent.Status__c}
+            </dd>
+            <dt class="slds-dl_horizontal__label">Reason</dt>
+            <dd data-id="detail-reason" class="slds-dl_horizontal__detail">
+              {detailEvent.Exception_Reason__c}
+            </dd>
+            <dt class="slds-dl_horizontal__label">Attempts</dt>
+            <dd class="slds-dl_horizontal__detail">
+              {detailEvent.Attempts__c}
+            </dd>
+            <dt class="slds-dl_horizontal__label">Last error</dt>
+            <dd data-id="detail-error" class="slds-dl_horizontal__detail">
+              {detailEvent.Last_Error__c}
+            </dd>
+          </dl>
+
+          <h3 class="slds-text-title_caps">Payload</h3>
+          <pre data-id="payload" class="payload">{detail.formattedPayload}</pre>
+
+          <template lwc:if={hasPayments}>
+            <h3 class="slds-text-title_caps slds-m-top_small">Payments</h3>
+            <ul data-id="payments" class="slds-list_dotted">
+              <template for:each={detail.payments} for:item="payment">
+                <li key={payment.Id}>
+                  {payment.Type__c}: {payment.Amount__c}
+                  {payment.Currency_Code__c} ({payment.Status__c})
+                </li>
+              </template>
+            </ul>
+          </template>
+
+          <div class="slds-m-top_medium">
+            <template lwc:if={detail.canRetry}>
+              <lightning-button
+                data-id="retry"
+                label="Retry processing"
+                variant="brand"
+                disabled={isBusy}
+                onclick={handleRetry}
+              ></lightning-button>
+            </template>
+
+            <template lwc:if={detail.canMatch}>
+              <div data-id="match-panel">
+                <lightning-input
+                  data-id="invoice-search"
+                  type="search"
+                  label="Find open invoice (number, name or customer)"
+                  value={searchTerm}
+                  onchange={handleSearchChange}
+                ></lightning-input>
+                <template lwc:if={hasInvoiceResults}>
+                  <lightning-radio-group
+                    data-id="invoice-results"
+                    name="invoice"
+                    label="Open invoices"
+                    options={invoiceOptions}
+                    value={selectedInvoiceId}
+                    onchange={handleInvoiceSelect}
+                  ></lightning-radio-group>
+                </template>
+                <template lwc:elseif={searchedWithoutResults}>
+                  <p data-id="no-invoices" class="slds-m-vertical_x-small">
+                    No open invoices match.
+                  </p>
+                </template>
+                <lightning-button
+                  data-id="match"
+                  class="slds-m-top_small"
+                  label="Apply payment to invoice"
+                  variant="brand"
+                  disabled={matchDisabled}
+                  onclick={handleMatch}
+                ></lightning-button>
+              </div>
+            </template>
+          </div>
+        </section>
+      </template>
+
+      <template lwc:if={isBusy}>
+        <lightning-spinner
+          alternative-text="Working"
+          size="small"
+        ></lightning-spinner>
+      </template>
+    </div>
+  </lightning-card>
+</template>
