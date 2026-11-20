@@ -45,7 +45,8 @@ public with sharing class ReconciliationController {
     return new PaymentEventSelector().selectQueueAsUser(requested, QUEUE_LIMIT);
   }
 
-  @AuraEnabled(cacheable=true)
+  // Not cacheable: the console must see fresh state after retry/match.
+  @AuraEnabled
   public static EventDetail getEventDetail(Id eventId) {
     Payment_Event__c record = loadEvent(eventId);
     EventDetail detail = new EventDetail();
