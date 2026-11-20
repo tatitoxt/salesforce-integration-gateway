@@ -2,7 +2,7 @@
  * Minimal trigger handler base class. One trigger per object delegates to a
  * subclass; handlers can be bypassed by name (used by services and tests).
  */
-public virtual inherited sharing class TriggerHandler {
+public abstract inherited sharing class TriggerHandler {
   private static Set<String> bypassedHandlers = new Set<String>();
 
   @TestVisible
@@ -65,10 +65,8 @@ public virtual inherited sharing class TriggerHandler {
     return bypassedHandlers.contains(handlerName);
   }
 
-  @TestVisible
-  private String getHandlerName() {
-    return String.valueOf(this).substringBefore(':');
-  }
+  /** Name used for bypassing; normally the concrete class name. */
+  protected abstract String getHandlerName();
 
   @SuppressWarnings('PMD.EmptyStatementBlock')
   protected virtual void beforeInsert(List<SObject> records) {
