@@ -246,6 +246,9 @@ public inherited sharing class PaymentEventService {
       if (original.Status__c != 'Applied') {
         reason = REASON_ORIGINAL_NOT_APPLIED;
         refund.Status__c = 'Exception';
+      } else if (payload.currencyCode != original.Currency_Code__c) {
+        reason = REASON_CURRENCY_MISMATCH;
+        refund.Status__c = 'Exception';
       } else if (alreadyRefunded + payload.amount > original.Amount__c) {
         reason = REASON_REFUND_EXCEEDS_PAYMENT;
         refund.Status__c = 'Exception';
