@@ -4,7 +4,7 @@
 
 An SFDX project (Apex + Lightning Web Components) that receives signed payment webhooks in Salesforce, processes them idempotently and asynchronously, reconciles payments against invoices, syncs invoice status to a billing platform, and gives operators a console for the exceptions.
 
-> **Apex execution status:** the Apex code and its 64 test methods have **not** been executed against a Salesforce org in this repository's history. No Dev Hub / SFDX auth URL was available while building it. CI runs the `apex-org` job (deploy + `RunLocalTests` with coverage) **only when an `SFDX_AUTH_URL` repository secret is configured**; otherwise it is skipped with a notice. What _is_ verified on every push: LWC Jest tests, simulator unit/integration/E2E tests, ESLint, Prettier (including Apex syntax via `prettier-plugin-apex`), Salesforce Code Analyzer (PMD) and `npm audit`.
+> **Apex execution status:** the Apex code and its 70 test methods have **not** been executed against a Salesforce org in this repository's history. No Dev Hub / SFDX auth URL was available while building it. CI runs the `apex-org` job (deploy + `RunLocalTests` with coverage) **only when an `SFDX_AUTH_URL` repository secret is configured**; otherwise it is skipped with a notice. What _is_ verified on every push: LWC Jest tests, simulator unit/integration/E2E tests, ESLint, Prettier (including Apex syntax via `prettier-plugin-apex`), Salesforce Code Analyzer (PMD) and `npm audit`.
 
 ## Problem
 
@@ -123,7 +123,7 @@ To receive real HTTP traffic, expose the Apex REST endpoint to an integration us
 | Simulator E2E (real CLI entrypoint, two processes)                                     | `npm run test:e2e`                                                    | 1 test                                             |
 | Lint / format                                                                          | `npm run lint`, `npm run format:check`                                | —                                                  |
 | Apex (PMD)                                                                             | `sf scanner run --target force-app/main/default/classes --engine pmd` | 0 findings of severity 1–2                         |
-| Apex tests                                                                             | `sf apex run test --test-level RunLocalTests` (needs an org)          | 64 test methods in 9 classes, **not executed yet** |
+| Apex tests                                                                             | `sf apex run test --test-level RunLocalTests` (needs an org)          | 70 test methods in 9 classes, **not executed yet** |
 
 Apex test classes cover: valid webhook (202 + async processing), bad signature, stale timestamp, missing secret (503), duplicate events, payload validation, matching, partial payments, overpayment, currency mismatch, refunds, refund-before-payment retry with backoff and dead-letter, billing sync via `HttpCalloutMock` (200, 503, 429/timeout, 422, max attempts), a 200-record bulk run with query/DML count assertions, the reconciliation controller, trigger bypass and the sweeper.
 
