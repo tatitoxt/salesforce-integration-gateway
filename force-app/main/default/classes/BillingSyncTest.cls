@@ -232,6 +232,33 @@ private class BillingSyncTest {
   }
 
   @IsTest
+  static void idempotencyKeyChangesAfterRefundAndRepayment() {
+    Id invoiceId = [SELECT Id FROM Invoice__c LIMIT 1].Id;
+    Invoice__c paid = new Invoice__c(
+      Id = invoiceId,
+      Amount_Paid__c = 100,
+      Amount_Refunded__c = 0,
+      Status__c = 'Paid'
+    );
+    Invoice__c repaid = new Invoice__c(
+      Id = invoiceId,
+      Amount_Paid__c = 100,
+      Amount_Refunded__c = 100,
+      Status__c = 'Paid'
+    );
+    Assert.areNotEqual(
+      BillingPlatformClient.idempotencyKey(paid),
+      BillingPlatformClient.idempotencyKey(repaid),
+      'same net position after a refund must not reuse the key'
+    );
+    Assert.areEqual(
+      BillingPlatformClient.idempotencyKey(paid),
+      BillingPlatformClient.idempotencyKey(paid.clone(true)),
+      'retries of the same state reuse the key'
+    );
+  }
+
+  @IsTest
   static void longErrorBodiesFitTheErrorField() {
     Invoice__c invoice = markPending(0);
     Test.setMock(
