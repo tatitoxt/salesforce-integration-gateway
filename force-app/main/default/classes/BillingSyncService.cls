@@ -51,6 +51,32 @@ public inherited sharing class BillingSyncService {
     return updates;
   }
 
+  /**
+   * Drops results for invoices whose payment position changed while the
+   * callouts were in flight, so they stay Pending and the newer state is sent.
+   */
+  public static List<Invoice__c> withoutStaleResults(
+    Map<Id, Invoice__c> sentById,
+    List<Invoice__c> results,
+    List<Invoice__c> current
+  ) {
+    Map<Id, Invoice__c> currentById = new Map<Id, Invoice__c>(current);
+    List<Invoice__c> fresh = new List<Invoice__c>();
+    for (Invoice__c result : results) {
+      Invoice__c sent = sentById.get(result.Id);
+      Invoice__c latest = currentById.get(result.Id);
+      if (
+        latest != null &&
+        sent.Amount_Paid__c == latest.Amount_Paid__c &&
+        sent.Amount_Refunded__c == latest.Amount_Refunded__c &&
+        sent.Status__c == latest.Status__c
+      ) {
+        fresh.add(result);
+      }
+    }
+    return fresh;
+  }
+
   private static void markSynced(Invoice__c result, String body) {
     result.Billing_Sync_Status__c = 'Synced';
     result.Billing_Last_Synced_At__c = GatewayClock.now();
