@@ -42,6 +42,9 @@ test("refund events reference the original payment", () => {
 test("converts to minor units and validates amounts", () => {
   assert.equal(toMinorUnits("19.99", "usd"), 1999);
   assert.equal(toMinorUnits(1500, "JPY"), 1500);
+  for (const code of ["ugx", "XOF", "PYG", "VUV"]) {
+    assert.equal(toMinorUnits(1500, code), 1500, code);
+  }
   assert.throws(() => toMinorUnits(-1, "usd"), /Invalid amount/);
   assert.throws(() => toMinorUnits("abc", "usd"), /Invalid amount/);
 });

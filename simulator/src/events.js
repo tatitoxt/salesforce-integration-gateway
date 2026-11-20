@@ -2,7 +2,25 @@
 
 const crypto = require("node:crypto");
 
-const ZERO_DECIMAL = new Set(["JPY", "KRW", "CLP", "VND"]);
+// Keep in sync with ZERO_DECIMAL_CURRENCIES in PaymentEventPayload.cls.
+const ZERO_DECIMAL = new Set([
+  "BIF",
+  "CLP",
+  "DJF",
+  "GNF",
+  "JPY",
+  "KMF",
+  "KRW",
+  "MGA",
+  "PYG",
+  "RWF",
+  "UGX",
+  "VND",
+  "VUV",
+  "XAF",
+  "XOF",
+  "XPF"
+]);
 
 function toMinorUnits(amount, currency) {
   const value = Number(amount);
