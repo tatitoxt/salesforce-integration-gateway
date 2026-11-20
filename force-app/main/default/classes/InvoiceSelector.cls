@@ -58,6 +58,15 @@ public inherited sharing class InvoiceSelector {
     ];
   }
 
+  public List<Invoice__c> selectPaymentPositionForUpdate(Set<Id> invoiceIds) {
+    return [
+      SELECT Id, Amount_Paid__c, Amount_Refunded__c, Status__c
+      FROM Invoice__c
+      WHERE Id IN :invoiceIds
+      FOR UPDATE
+    ];
+  }
+
   public List<Invoice__c> selectDueForBillingSync(Integer limitSize) {
     Datetime now = GatewayClock.now();
     return [

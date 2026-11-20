@@ -202,6 +202,36 @@ private class BillingSyncTest {
   }
 
   @IsTest
+  static void resultsForInvoicesChangedDuringCalloutsAreDropped() {
+    markPending(0);
+    markPending(1);
+    InvoiceSelector selector = new InvoiceSelector();
+    Map<Id, Invoice__c> sent = new Map<Id, Invoice__c>(
+      selector.selectDueForBillingSync(10)
+    );
+    List<Invoice__c> results = new List<Invoice__c>();
+    for (Id invoiceId : sent.keySet()) {
+      results.add(
+        new Invoice__c(Id = invoiceId, Billing_Sync_Status__c = 'Synced')
+      );
+    }
+    Invoice__c changed = sent.values()[0].clone(true);
+    changed.Amount_Paid__c = 40;
+    TriggerHandler.bypass('InvoiceTriggerHandler');
+    update changed;
+    TriggerHandler.clearBypass('InvoiceTriggerHandler');
+
+    List<Invoice__c> fresh = BillingSyncService.withoutStaleResults(
+      sent,
+      results,
+      selector.selectPaymentPositionForUpdate(sent.keySet())
+    );
+
+    Assert.areEqual(1, fresh.size(), 'only the unchanged invoice is acked');
+    Assert.areNotEqual(changed.Id, fresh[0].Id);
+  }
+
+  @IsTest
   static void longErrorBodiesFitTheErrorField() {
     Invoice__c invoice = markPending(0);
     Test.setMock(

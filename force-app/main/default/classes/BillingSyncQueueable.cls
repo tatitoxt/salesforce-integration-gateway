@@ -19,7 +19,12 @@ public without sharing class BillingSyncQueueable implements Queueable, Database
         new BillingPlatformClient()
       )
       .sync(due);
-    update updates;
+    Map<Id, Invoice__c> sent = new Map<Id, Invoice__c>(due);
+    update BillingSyncService.withoutStaleResults(
+      sent,
+      updates,
+      selector.selectPaymentPositionForUpdate(sent.keySet())
+    );
     if (!selector.selectDueForBillingSync(1).isEmpty()) {
       AsyncJobs.enqueue(new BillingSyncQueueable(), 0);
     }
