@@ -1,0 +1,33 @@
+{
+  "name": "salesforce-integration-gateway",
+  "private": true,
+  "version": "0.1.0",
+  "description": "Apex + LWC gateway for signed payment webhooks, idempotent processing and invoice reconciliation",
+  "license": "MIT",
+  "engines": {
+    "node": ">=20"
+  },
+  "scripts": {
+    "lint": "eslint \"force-app/**/lwc/**/*.js\" \"simulator/**/*.js\" eslint.config.js jest.config.js",
+    "format": "prettier --write \"**/*.{cls,trigger,js,json,md,xml,yml,yaml,html,css}\"",
+    "format:check": "prettier --check \"**/*.{cls,trigger,js,json,md,xml,yml,yaml,html,css}\"",
+    "test": "npm run test:lwc && npm run test:simulator",
+    "test:lwc": "sfdx-lwc-jest --coverage",
+    "test:simulator": "node --test simulator/test/unit simulator/test/integration",
+    "test:e2e": "node --test simulator/test/e2e",
+    "simulate": "node simulator/bin/gateway-sim.js"
+  },
+  "devDependencies": {
+    "@lwc/eslint-plugin-lwc": "3.3.0",
+    "@prettier/plugin-xml": "3.4.2",
+    "@salesforce/eslint-config-lwc": "4.1.2",
+    "@salesforce/eslint-plugin-lightning": "2.0.0",
+    "@salesforce/sfdx-lwc-jest": "7.9.0",
+    "eslint": "9.39.4",
+    "eslint-plugin-import": "2.32.0",
+    "eslint-plugin-jest": "29.0.1",
+    "globals": "15.14.0",
+    "prettier": "3.6.2",
+    "prettier-plugin-apex": "2.2.6"
+  }
+}
