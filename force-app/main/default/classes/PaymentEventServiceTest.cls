@@ -252,6 +252,39 @@ private class PaymentEventServiceTest {
   }
 
   @IsTest
+  static void refundInDifferentCurrencyIsAnException() {
+    process(
+      new List<String>{
+        GatewayTestData.paymentEvent(
+          'evt_pay',
+          'pi_cur',
+          GatewayTestData.invoiceNumber(0),
+          10000,
+          'usd'
+        )
+      }
+    );
+    List<Payment_Event__c> records = process(
+      new List<String>{
+        GatewayTestData.refundEvent('evt_ref', 're_cur', 'pi_cur', 2500, 'eur')
+      }
+    );
+    Payment_Event__c event = GatewayTestData.reload(records[0].Id);
+    Assert.areEqual('Needs_Review', event.Status__c);
+    Assert.areEqual(
+      PaymentEventService.REASON_CURRENCY_MISMATCH,
+      event.Exception_Reason__c
+    );
+    Assert.areEqual(
+      'Exception',
+      [SELECT Status__c FROM Payment__c WHERE Type__c = 'Refund'].Status__c
+    );
+    Invoice__c updated = invoice(0);
+    Assert.areEqual(100, updated.Amount_Paid__c, 'refund not applied');
+    Assert.areEqual('Paid', updated.Status__c);
+  }
+
+  @IsTest
   static void refundExceedingPaymentIsAnException() {
     process(
       new List<String>{
