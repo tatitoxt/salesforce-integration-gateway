@@ -5,7 +5,7 @@
   "description": "Apex + LWC gateway for signed payment webhooks, idempotent processing and invoice reconciliation",
   "license": "MIT",
   "engines": {
-    "node": ">=20"
+    "node": ">=22"
   },
   "scripts": {
     "lint": "eslint \"force-app/**/lwc/**/*.js\" \"simulator/**/*.js\" eslint.config.js jest.config.js",
@@ -13,9 +13,9 @@
     "format:check": "prettier --check \"**/*.{cls,trigger,js,json,md,xml,yml,yaml,html,css}\"",
     "test": "npm run test:lwc && npm run test:simulator",
     "test:lwc": "sfdx-lwc-jest --coverage",
-    "test:simulator": "node --test simulator/test/unit simulator/test/integration",
-    "test:e2e": "node --test simulator/test/e2e",
-    "simulate": "node simulator/bin/gateway-sim.js"
+    "test:simulator": "node --test \"simulator/test/unit/*.test.js\" \"simulator/test/integration/*.test.js\"",
+    "test:e2e": "node --test \"simulator/test/e2e/*.test.js\"",
+    "simulate": "node simulator/bin/webhook-simulator.js"
   },
   "devDependencies": {
     "@lwc/eslint-plugin-lwc": "3.3.0",
