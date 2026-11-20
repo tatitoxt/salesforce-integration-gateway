@@ -88,7 +88,7 @@ public inherited sharing class WebhookSignatureVerifier {
     }
     Integer difference = 0;
     for (Integer i = 0; i < left.length(); i++) {
-      difference |= left.charAt(i) ^ right.charAt(i);
+      difference = difference | (left.charAt(i) ^ right.charAt(i));
     }
     return difference == 0;
   }
