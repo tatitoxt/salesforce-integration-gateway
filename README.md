@@ -1,2 +1,1 @@
-# salesforce-integration-gateway
-Apex and LWC gateway for payment webhooks: HMAC verification, idempotency and reconciliation.
+# salesforce-integration-gateway — Apex + LWC gateway for signed payment webhooks, idempotent processing and invoice reconciliation.
