@@ -37,6 +37,36 @@ private class PaymentEventProcessorTest {
   }
 
   @IsTest
+  static void processesOneBatchAndChainsTheBacklog() {
+    GatewayTestData.freezeClock();
+    List<String> bodies = new List<String>();
+    for (Integer i = 0; i <= PaymentEventProcessor.BATCH_SIZE; i++) {
+      bodies.add(
+        GatewayTestData.paymentEvent(
+          'evt_backlog_' + i,
+          'pi_backlog_' + i,
+          'INV-UNKNOWN',
+          100,
+          'usd'
+        )
+      );
+    }
+    GatewayTestData.insertEvents(bodies);
+
+    new PaymentEventProcessor().run();
+
+    Assert.areEqual(
+      1,
+      [SELECT COUNT() FROM Payment_Event__c WHERE Status__c = 'Received'],
+      'one event left for the next run'
+    );
+    Assert.isTrue(
+      AsyncJobs.wasRequested('PaymentEventProcessor'),
+      'backlog chained to a follow-up job'
+    );
+  }
+
+  @IsTest
   static void minutesUntilRoundsUpWithMinimumOfOne() {
     GatewayTestData.freezeClock();
     Datetime now = GatewayClock.now();

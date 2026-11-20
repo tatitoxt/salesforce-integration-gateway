@@ -3,7 +3,7 @@
  * persist. Business processing happens later in PaymentEventProcessor.
  */
 public inherited sharing class WebhookIngestionService {
-  public static final Integer MAX_PAYLOAD_LENGTH = 131072;
+  public static final Integer MAX_PAYLOAD_LENGTH = 65536;
 
   private final PaymentEventSelector eventSelector;
 

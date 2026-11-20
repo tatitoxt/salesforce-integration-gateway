@@ -9,7 +9,7 @@ private class PaymentEventBulkTest {
   }
 
   @IsTest
-  static void processes200EventsInOneQueueableRun() {
+  static void processes200EventsInOneServiceCall() {
     GatewayTestData.freezeClock();
     List<String> bodies = new List<String>();
     for (Integer i = 0; i < BULK_SIZE; i++) {
@@ -26,7 +26,8 @@ private class PaymentEventBulkTest {
     GatewayTestData.insertEvents(bodies);
 
     Test.startTest();
-    new PaymentEventProcessor().run();
+    new PaymentEventService()
+      .process(new PaymentEventSelector().selectDueForProcessing(BULK_SIZE));
     Integer queries = Limits.getQueries();
     Integer dmlStatements = Limits.getDmlStatements();
     Test.stopTest();

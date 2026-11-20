@@ -3,7 +3,7 @@
 const http = require("node:http");
 const { verifySignature } = require("./signature");
 
-const MAX_BODY_BYTES = 131072;
+const MAX_BODY_BYTES = 65536;
 
 /**
  * Local stand-in for /services/apexrest/payments/webhook. It mirrors the
