@@ -1,0 +1,28 @@
+# Salesforce CLI / SFDX
+.sf/
+.sfdx/
+.localdevserver/
+deploy-options.json
+
+# Node
+node_modules/
+npm-debug.log*
+
+# Test / analysis output
+coverage/
+test-results/
+reports/
+.code-analyzer/
+sfca_results*
+
+# Local config and secrets
+.env
+.env.*
+!.env.example
+*.local.apex
+
+# Editors / OS
+.vscode/*
+!.vscode/extensions.json
+.idea/
+.DS_Store
