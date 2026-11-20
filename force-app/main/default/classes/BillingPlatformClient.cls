@@ -31,6 +31,8 @@ public inherited sharing class BillingPlatformClient {
       ':' +
       String.valueOf(invoice.Amount_Paid__c) +
       ':' +
+      String.valueOf(invoice.Amount_Refunded__c) +
+      ':' +
       invoice.Status__c;
   }
 
