@@ -202,6 +202,25 @@ private class BillingSyncTest {
   }
 
   @IsTest
+  static void longErrorBodiesFitTheErrorField() {
+    Invoice__c invoice = markPending(0);
+    Test.setMock(
+      HttpCalloutMock.class,
+      new GatewayTestData.BillingMock(422, 'x'.repeat(5000))
+    );
+    Test.startTest();
+    new BillingSyncQueueable().run();
+    Test.stopTest();
+    Invoice__c failed = GatewayTestData.reloadInvoice(invoice.Id);
+    Assert.areEqual('Failed', failed.Billing_Sync_Status__c);
+    Assert.areEqual(
+      255,
+      failed.Billing_Last_Error__c.length(),
+      'error truncated to the field length'
+    );
+  }
+
+  @IsTest
   static void parseExternalIdToleratesNonJson() {
     Assert.isNull(BillingSyncService.parseExternalId('not json'));
     Assert.isNull(BillingSyncService.parseExternalId(''));

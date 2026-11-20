@@ -101,7 +101,10 @@ public inherited sharing class BillingSyncService {
     return null;
   }
 
+  @TestVisible
   private static String abbreviate(String value) {
-    return value == null ? null : value.abbreviate(1000);
+    Integer maxLength = Invoice__c.Billing_Last_Error__c.getDescribe()
+      .getLength();
+    return value == null ? null : value.abbreviate(maxLength);
   }
 }
