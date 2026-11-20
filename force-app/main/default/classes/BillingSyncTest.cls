@@ -148,7 +148,7 @@ private class BillingSyncTest {
       HttpCalloutMock.class,
       new GatewayTestData.BillingMock(200, '{"id":"bill_9"}')
     );
-    List<Payment_Event__c> records = GatewayTestData.insertEvents(
+    GatewayTestData.insertEvents(
       new List<String>{
         GatewayTestData.paymentEvent(
           'evt_b1',

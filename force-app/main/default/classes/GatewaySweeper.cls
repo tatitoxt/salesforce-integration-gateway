@@ -23,6 +23,7 @@ public without sharing class GatewaySweeper implements Schedulable {
   }
 
   /** Schedules the sweeper every 15 minutes (four cron jobs). */
+  @SuppressWarnings('PMD.OperationWithLimitsInLoop')
   public static List<Id> scheduleEvery15Minutes() {
     List<Id> jobIds = new List<Id>();
     for (Integer minute = 0; minute < 60; minute += 15) {
