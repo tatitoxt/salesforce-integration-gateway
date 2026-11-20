@@ -114,6 +114,11 @@ private class ReconciliationControllerTest {
       invoice.Id,
       'Only events in Needs_Review'
     );
+    Assert.areEqual(
+      'Needs_Review',
+      byExternalId('evt_unmatched').Status__c,
+      'rejected matches leave the event untouched'
+    );
   }
 
   @IsTest

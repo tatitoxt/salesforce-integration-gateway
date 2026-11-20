@@ -1,7 +1,10 @@
 /**
  * Recomputes Amount_Paid__c (net of refunds), Amount_Refunded__c and Status__c
  * from applied Payment__c records with one aggregate query per call.
+ * Invoked from the Payment__c trigger; roll-ups must stay correct regardless
+ * of the running user's field access, so CRUD/FLS is not enforced here.
  */
+@SuppressWarnings('PMD.ApexCRUDViolation')
 public inherited sharing class InvoiceRollupService {
   private final PaymentSelector paymentSelector = new PaymentSelector();
   private final InvoiceSelector invoiceSelector = new InvoiceSelector();

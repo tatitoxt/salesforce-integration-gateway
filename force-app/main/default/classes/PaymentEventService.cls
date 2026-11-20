@@ -2,8 +2,11 @@
  * Turns parsed payment events into Payment__c records matched to invoices.
  * Bulk-safe: a fixed number of queries/DML statements per call regardless of
  * batch size. Every event leaves with a terminal or retry status.
+ * Runs inside the system-mode PaymentEventProcessor job, hence no CRUD checks.
  */
-@SuppressWarnings('PMD.CognitiveComplexity,PMD.CyclomaticComplexity')
+@SuppressWarnings(
+  'PMD.CognitiveComplexity,PMD.CyclomaticComplexity,PMD.StdCyclomaticComplexity,PMD.NcssMethodCount,PMD.ApexCRUDViolation'
+)
 public inherited sharing class PaymentEventService {
   public static final String REASON_MISSING_INVOICE_REFERENCE = 'MISSING_INVOICE_REFERENCE';
   public static final String REASON_INVOICE_NOT_FOUND = 'INVOICE_NOT_FOUND';

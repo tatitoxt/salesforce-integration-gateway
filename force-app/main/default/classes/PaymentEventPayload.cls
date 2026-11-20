@@ -25,9 +25,6 @@ public inherited sharing class PaymentEventPayload {
     'XPF'
   };
 
-  public class PayloadException extends Exception {
-  }
-
   public String eventId;
   public String eventType;
   public Datetime createdAt;
@@ -37,6 +34,9 @@ public inherited sharing class PaymentEventPayload {
   public String invoiceNumber;
   public String customerReference;
   public String paymentIntentId;
+
+  public class PayloadException extends Exception {
+  }
 
   public Boolean isPayment() {
     return eventType == TYPE_PAYMENT_SUCCEEDED;

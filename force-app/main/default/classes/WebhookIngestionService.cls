@@ -5,6 +5,8 @@
 public inherited sharing class WebhookIngestionService {
   public static final Integer MAX_PAYLOAD_LENGTH = 131072;
 
+  private final PaymentEventSelector eventSelector;
+
   public class Outcome {
     public Integer statusCode;
     public String status;
@@ -26,8 +28,6 @@ public inherited sharing class WebhookIngestionService {
       return body;
     }
   }
-
-  private final PaymentEventSelector eventSelector;
 
   public WebhookIngestionService() {
     this(new PaymentEventSelector());

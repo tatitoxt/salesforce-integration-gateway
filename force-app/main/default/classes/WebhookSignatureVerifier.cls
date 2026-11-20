@@ -10,14 +10,14 @@ public inherited sharing class WebhookSignatureVerifier {
   public static final String REASON_STALE = 'stale_timestamp';
   public static final String REASON_MISMATCH = 'signature_mismatch';
 
+  private final String secret;
+  private final Integer toleranceSeconds;
+
   public class Result {
     public Boolean valid = false;
     public String reason;
     public Long timestampSeconds;
   }
-
-  private final String secret;
-  private final Integer toleranceSeconds;
 
   public WebhookSignatureVerifier(String secret, Integer toleranceSeconds) {
     this.secret = secret;
