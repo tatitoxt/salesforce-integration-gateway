@@ -562,4 +562,57 @@ private class PaymentEventServiceTest {
       record.Exception_Reason__c
     );
   }
+
+  @IsTest
+  static void amountOnlyPaymentMatchesTheSingleOpenInvoice() {
+    // Leave only invoice 0 payable at exactly $100 so the amount fallback is
+    // unambiguous.
+    Invoice__c paid = invoice(1);
+    paid.Status__c = 'Paid';
+    Invoice__c voided = invoice(2);
+    voided.Status__c = 'Void';
+    update new List<Invoice__c>{ paid, voided };
+
+    List<Payment_Event__c> records = process(
+      new List<String>{
+        GatewayTestData.paymentEvent('evt_amt', 'pi_amt', null, 10000, 'usd')
+      }
+    );
+    Assert.areEqual(
+      'Processed',
+      GatewayTestData.reload(records[0].Id).Status__c
+    );
+    Payment__c payment = [
+      SELECT Status__c, Match_Method__c, Invoice__c
+      FROM Payment__c
+    ];
+    Assert.areEqual('Applied', payment.Status__c);
+    Assert.areEqual('Exact_Amount', payment.Match_Method__c);
+    Assert.areEqual(invoice(0).Id, payment.Invoice__c);
+    Assert.areEqual('Paid', invoice(0).Status__c);
+  }
+
+  @IsTest
+  static void amountOnlyPaymentStaysUnmatchedWhenAmbiguous() {
+    // All three setup invoices are payable at $100: no unique candidate.
+    List<Payment_Event__c> records = process(
+      new List<String>{
+        GatewayTestData.paymentEvent('evt_amb', 'pi_amb', null, 10000, 'usd')
+      }
+    );
+    Payment_Event__c record = GatewayTestData.reload(records[0].Id);
+    Assert.areEqual('Needs_Review', record.Status__c);
+    Assert.areEqual(
+      PaymentEventService.REASON_MISSING_INVOICE_REFERENCE,
+      record.Exception_Reason__c
+    );
+    Assert.areEqual(
+      1,
+      [
+        SELECT COUNT()
+        FROM Payment__c
+        WHERE Status__c = 'Unmatched' AND Invoice__c = NULL
+      ]
+    );
+  }
 }

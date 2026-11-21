@@ -36,6 +36,43 @@ public inherited sharing class InvoiceSelector {
     ];
   }
 
+  /**
+   * Open invoices grouped by exact Balance_Due__c for amount-based matching:
+   * returns every payable invoice whose currency and balance is in the given
+   * set, so the caller can keep only currencies/amounts with exactly one row.
+   */
+  public List<Invoice__c> selectPayableByCurrenciesAndAmounts(
+    Set<String> currencies,
+    Set<Decimal> amounts
+  ) {
+    if (
+      currencies == null ||
+      currencies.isEmpty() ||
+      amounts == null ||
+      amounts.isEmpty()
+    ) {
+      return new List<Invoice__c>();
+    }
+    return [
+      SELECT
+        Id,
+        Name,
+        Invoice_Number__c,
+        Customer_Reference__c,
+        Currency_Code__c,
+        Total_Amount__c,
+        Amount_Paid__c,
+        Amount_Refunded__c,
+        Balance_Due__c,
+        Status__c
+      FROM Invoice__c
+      WHERE
+        Status__c IN :PAYABLE_STATUSES
+        AND Currency_Code__c IN :currencies
+        AND Balance_Due__c IN :amounts
+    ];
+  }
+
   public List<Invoice__c> selectByIds(Set<Id> invoiceIds) {
     if (invoiceIds == null || invoiceIds.isEmpty()) {
       return new List<Invoice__c>();
