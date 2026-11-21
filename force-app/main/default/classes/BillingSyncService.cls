@@ -111,6 +111,7 @@ public inherited sharing class BillingSyncService {
   }
 
   @TestVisible
+  @TestVisible
   private static String parseExternalId(String body) {
     if (String.isBlank(body)) {
       return null;
