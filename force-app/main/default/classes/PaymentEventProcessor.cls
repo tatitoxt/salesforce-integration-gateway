@@ -7,8 +7,26 @@ public without sharing class PaymentEventProcessor implements Queueable {
   // Bounded by heap, not row count: 50 x 64 KB payloads stay well below the
   // 12 MB async heap limit including parsed JSON.
   public static final Integer BATCH_SIZE = 50;
+  /**
+   * Consecutive unhandled crashes that PaymentEventRetryFinalizer retries
+   * immediately before the scheduled sweeper takes over.
+   */
+  public static final Integer MAX_CRASH_RETRIES = 3;
+
+  private final Integer crashDepth;
+
+  public PaymentEventProcessor() {
+    this(0);
+  }
+
+  public PaymentEventProcessor(Integer crashDepth) {
+    this.crashDepth = crashDepth == null ? 0 : crashDepth;
+  }
 
   public void execute(QueueableContext context) {
+    // A finalizer still runs when this job dies on a governor limit, where a
+    // catch block could never enqueue the retry.
+    System.attachFinalizer(new PaymentEventRetryFinalizer(crashDepth));
     run();
   }
 
