@@ -5,6 +5,8 @@
 public inherited sharing class PaymentEventPayload {
   public static final String TYPE_PAYMENT_SUCCEEDED = 'payment_intent.succeeded';
   public static final String TYPE_REFUND_CREATED = 'refund.created';
+  public static final String TYPE_DISPUTE_CREATED = 'charge.dispute.created';
+  public static final String TYPE_INVOICE_PAID = 'invoice.paid';
 
   private static final Set<String> ZERO_DECIMAL_CURRENCIES = new Set<String>{
     'BIF',
@@ -46,6 +48,19 @@ public inherited sharing class PaymentEventPayload {
     return eventType == TYPE_REFUND_CREATED;
   }
 
+  public Boolean isDispute() {
+    return eventType == TYPE_DISPUTE_CREATED;
+  }
+
+  public Boolean isInvoicePaid() {
+    return eventType == TYPE_INVOICE_PAID;
+  }
+
+  /** Types the service interprets; anything else parses leniently and is Ignored. */
+  public Boolean isActionable() {
+    return isPayment() || isRefund() || isDispute() || isInvoicePaid();
+  }
+
   public static PaymentEventPayload parse(String body) {
     Object root;
     try {
@@ -79,7 +94,7 @@ public inherited sharing class PaymentEventPayload {
       asMap(envelope.get('data'))?.get('object')
     );
     if (dataObject == null) {
-      if (payload.isPayment() || payload.isRefund()) {
+      if (payload.isActionable()) {
         throw new PayloadException('missing_data_object');
       }
       return payload;
@@ -96,13 +111,18 @@ public inherited sharing class PaymentEventPayload {
     if (metadata != null) {
       payload.invoiceNumber = asString(metadata.get('invoice_number'));
     }
-    if ((payload.isPayment() || payload.isRefund()) && payload.amount == null) {
+    if (payload.isInvoicePaid()) {
+      // Invoice objects carry the number on `number` and the total on `amount_paid`.
+      payload.invoiceNumber = asString(dataObject.get('number'));
+      payload.amount = toMajorUnits(
+        dataObject.get('amount_paid'),
+        payload.currencyCode
+      );
+    }
+    if (payload.isActionable() && payload.amount == null) {
       throw new PayloadException('missing_amount');
     }
-    if (
-      (payload.isPayment() || payload.isRefund()) &&
-      String.isBlank(payload.objectId)
-    ) {
+    if (payload.isActionable() && String.isBlank(payload.objectId)) {
       throw new PayloadException('missing_object_id');
     }
     return payload;

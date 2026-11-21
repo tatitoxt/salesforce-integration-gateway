@@ -18,6 +18,11 @@
         <default>false</default>
         <label>Refund</label>
       </value>
+      <value>
+        <fullName>Dispute</fullName>
+        <default>false</default>
+        <label>Dispute</label>
+      </value>
     </valueSetDefinition>
   </valueSet>
 </CustomField>

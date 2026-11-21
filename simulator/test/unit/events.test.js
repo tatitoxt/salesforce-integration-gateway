@@ -5,6 +5,8 @@ const assert = require("node:assert/strict");
 const {
   paymentSucceeded,
   refundCreated,
+  disputeCreated,
+  invoicePaid,
   toMinorUnits,
   SCENARIOS,
   bulk
@@ -49,16 +51,48 @@ test("converts to minor units and validates amounts", () => {
   assert.throws(() => toMinorUnits("abc", "usd"), /Invalid amount/);
 });
 
+test("dispute events reference the original payment", () => {
+  const event = disputeCreated({
+    paymentId: "pi_1",
+    amount: 25,
+    reason: "duplicate"
+  });
+  assert.equal(event.type, "charge.dispute.created");
+  assert.equal(event.data.object.object, "dispute");
+  assert.equal(event.data.object.payment_intent, "pi_1");
+  assert.equal(event.data.object.amount, 2500);
+  assert.equal(event.data.object.reason, "duplicate");
+  assert.throws(() => disputeCreated({ amount: 5 }), /paymentId/);
+});
+
+test("invoice.paid events carry number and amount_paid", () => {
+  const event = invoicePaid({
+    invoiceNumber: "INV-9",
+    amountPaid: 99.5,
+    currency: "eur"
+  });
+  assert.equal(event.type, "invoice.paid");
+  assert.equal(event.data.object.object, "invoice");
+  assert.equal(event.data.object.number, "INV-9");
+  assert.equal(event.data.object.amount_paid, 9950);
+  assert.equal(event.data.object.currency, "eur");
+});
+
 test("scenarios produce the documented event shapes", () => {
   assert.deepEqual(Object.keys(SCENARIOS).sort(), [
     "currency-mismatch",
+    "dispute",
+    "dispute-before-payment",
     "duplicate",
     "full-payment",
+    "invoice-paid-upstream",
     "partial-payments",
     "refund",
     "refund-before-payment",
     "unknown-invoice"
   ]);
+  const [paid, disputed] = SCENARIOS.dispute();
+  assert.equal(disputed.data.object.payment_intent, paid.data.object.id);
   const [payment, refund] = SCENARIOS.refund();
   assert.equal(refund.data.object.payment_intent, payment.data.object.id);
   const [first, second] = SCENARIOS.duplicate();

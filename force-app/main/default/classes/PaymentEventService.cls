@@ -17,6 +17,8 @@ public inherited sharing class PaymentEventService {
   public static final String REASON_ORIGINAL_NOT_FOUND = 'ORIGINAL_PAYMENT_NOT_FOUND';
   public static final String REASON_ORIGINAL_NOT_APPLIED = 'ORIGINAL_PAYMENT_NOT_APPLIED';
   public static final String REASON_REFUND_EXCEEDS_PAYMENT = 'REFUND_EXCEEDS_PAYMENT';
+  public static final String REASON_DISPUTE_OPENED = 'DISPUTE_OPENED';
+  public static final String REASON_INVOICE_BALANCE_REMAINING = 'INVOICE_BALANCE_REMAINING';
   public static final String REASON_INVALID_PAYLOAD = 'INVALID_PAYLOAD';
   public static final String REASON_DML_ERROR = 'DML_ERROR';
   public static final String REASON_UNEXPECTED_ERROR = 'UNEXPECTED_ERROR';
@@ -30,6 +32,8 @@ public inherited sharing class PaymentEventService {
     Map<Id, PaymentEventPayload> payloads = new Map<Id, PaymentEventPayload>();
     List<Payment_Event__c> paymentEvents = new List<Payment_Event__c>();
     List<Payment_Event__c> refundEvents = new List<Payment_Event__c>();
+    List<Payment_Event__c> disputeEvents = new List<Payment_Event__c>();
+    List<Payment_Event__c> invoicePaidEvents = new List<Payment_Event__c>();
     for (Payment_Event__c record : events) {
       record.Attempts__c =
         (record.Attempts__c == null ? 0 : record.Attempts__c) + 1;
@@ -45,6 +49,10 @@ public inherited sharing class PaymentEventService {
         paymentEvents.add(record);
       } else if (payload.isRefund()) {
         refundEvents.add(record);
+      } else if (payload.isDispute()) {
+        disputeEvents.add(record);
+      } else if (payload.isInvoicePaid()) {
+        invoicePaidEvents.add(record);
       } else {
         markFinal(record, 'Ignored', null);
       }
@@ -54,12 +62,16 @@ public inherited sharing class PaymentEventService {
     try {
       applyPayments(paymentEvents, payloads);
       applyRefunds(refundEvents, payloads);
+      applyDisputes(disputeEvents, payloads);
+      applyInvoicePaid(invoicePaidEvents, payloads);
     } catch (Exception e) {
       Database.rollback(beforeApply);
       List<Payment_Event__c> affected = new List<Payment_Event__c>(
         paymentEvents
       );
       affected.addAll(refundEvents);
+      affected.addAll(disputeEvents);
+      affected.addAll(invoicePaidEvents);
       for (Payment_Event__c record : affected) {
         scheduleRetry(
           record,
@@ -263,6 +275,129 @@ public inherited sharing class PaymentEventService {
       reviewReasons.add(reason);
     }
     saveAndClassify(toInsert, insertedFor, reviewReasons);
+  }
+
+  /**
+   * A dispute is inherently an exception: it is recorded against the original
+   * payment and always lands in Needs_Review for a human. Missing originals
+   * retry like refunds, since dispute delivery can beat the payment event.
+   */
+  private void applyDisputes(
+    List<Payment_Event__c> events,
+    Map<Id, PaymentEventPayload> payloads
+  ) {
+    if (events.isEmpty()) {
+      return;
+    }
+    Set<String> disputeIds = new Set<String>();
+    Set<String> originalExternalIds = new Set<String>();
+    for (Payment_Event__c record : events) {
+      PaymentEventPayload payload = payloads.get(record.Id);
+      disputeIds.add(payload.objectId);
+      if (String.isNotBlank(payload.paymentIntentId)) {
+        originalExternalIds.add(payload.paymentIntentId);
+      }
+    }
+    Set<String> knownDisputeIds = externalIdsOf(
+      paymentSelector.selectByExternalIds(disputeIds)
+    );
+    Map<String, Payment__c> originalsByExternalId = new Map<String, Payment__c>();
+    for (
+      Payment__c original : paymentSelector.selectByExternalIds(
+        originalExternalIds
+      )
+    ) {
+      originalsByExternalId.put(original.External_Payment_Id__c, original);
+    }
+
+    List<Payment__c> toInsert = new List<Payment__c>();
+    List<Payment_Event__c> insertedFor = new List<Payment_Event__c>();
+    List<String> reviewReasons = new List<String>();
+    for (Payment_Event__c record : events) {
+      PaymentEventPayload payload = payloads.get(record.Id);
+      if (knownDisputeIds.contains(payload.objectId)) {
+        markFinal(
+          record,
+          'Processed',
+          'Dispute ' + payload.objectId + ' already recorded'
+        );
+        continue;
+      }
+      if (String.isBlank(payload.paymentIntentId)) {
+        markNeedsReview(record, REASON_MISSING_PAYMENT_REFERENCE);
+        continue;
+      }
+      Payment__c original = originalsByExternalId.get(payload.paymentIntentId);
+      if (original == null) {
+        scheduleRetry(
+          record,
+          REASON_ORIGINAL_NOT_FOUND,
+          'Dispute ' +
+            payload.objectId +
+            ' references unknown payment ' +
+            payload.paymentIntentId
+        );
+        continue;
+      }
+      knownDisputeIds.add(payload.objectId);
+
+      Payment__c dispute = newPayment(record, payload, 'Dispute');
+      dispute.Original_Payment__c = original.Id;
+      dispute.Invoice__c = original.Invoice__c;
+      dispute.Status__c = 'Exception';
+      dispute.Exception_Reason__c = REASON_DISPUTE_OPENED;
+      toInsert.add(dispute);
+      insertedFor.add(record);
+      reviewReasons.add(REASON_DISPUTE_OPENED);
+    }
+    saveAndClassify(toInsert, insertedFor, reviewReasons);
+  }
+
+  /**
+   * `invoice.paid` is a reconciliation signal, not a payment: it creates no
+   * Payment__c. It is Processed when the local invoice shows no remaining
+   * balance, otherwise Needs_Review flags the drift for the ops queue.
+   */
+  private void applyInvoicePaid(
+    List<Payment_Event__c> events,
+    Map<Id, PaymentEventPayload> payloads
+  ) {
+    if (events.isEmpty()) {
+      return;
+    }
+    Set<String> invoiceNumbers = new Set<String>();
+    for (Payment_Event__c record : events) {
+      PaymentEventPayload payload = payloads.get(record.Id);
+      if (String.isNotBlank(payload.invoiceNumber)) {
+        invoiceNumbers.add(payload.invoiceNumber);
+      }
+    }
+    Map<String, Invoice__c> invoicesByNumber = new Map<String, Invoice__c>();
+    for (
+      Invoice__c invoice : invoiceSelector.selectByInvoiceNumbers(
+        invoiceNumbers
+      )
+    ) {
+      invoicesByNumber.put(invoice.Invoice_Number__c.toUpperCase(), invoice);
+    }
+
+    for (Payment_Event__c record : events) {
+      PaymentEventPayload payload = payloads.get(record.Id);
+      if (String.isBlank(payload.invoiceNumber)) {
+        markNeedsReview(record, REASON_MISSING_INVOICE_REFERENCE);
+        continue;
+      }
+      Invoice__c invoice = invoicesByNumber.get(
+        payload.invoiceNumber.toUpperCase()
+      );
+      if (invoice == null) {
+        markNeedsReview(record, REASON_INVOICE_NOT_FOUND);
+      } else if (invoice.Balance_Due__c != null && invoice.Balance_Due__c > 0) {
+        markNeedsReview(record, REASON_INVOICE_BALANCE_REMAINING);
+      } else {
+        markFinal(record, 'Processed', null);
+      }
+    }
   }
 
   private void saveAndClassify(

@@ -47,6 +47,30 @@ private class PaymentEventPayloadTest {
   }
 
   @IsTest
+  static void parsesDisputeEvents() {
+    PaymentEventPayload payload = PaymentEventPayload.parse(
+      GatewayTestData.disputeEvent('evt_d', 'dp_1', 'pi_1', 2500, 'usd')
+    );
+    Assert.isTrue(payload.isDispute());
+    Assert.isTrue(payload.isActionable());
+    Assert.areEqual('dp_1', payload.objectId);
+    Assert.areEqual(25.00, payload.amount);
+    Assert.areEqual('pi_1', payload.paymentIntentId);
+  }
+
+  @IsTest
+  static void parsesInvoicePaidEvents() {
+    PaymentEventPayload payload = PaymentEventPayload.parse(
+      GatewayTestData.invoicePaidEvent('evt_i', 'in_1', 'INV-0042', 9900, 'USD')
+    );
+    Assert.isTrue(payload.isInvoicePaid());
+    Assert.isTrue(payload.isActionable());
+    Assert.areEqual('in_1', payload.objectId);
+    Assert.areEqual('INV-0042', payload.invoiceNumber);
+    Assert.areEqual(99.00, payload.amount);
+  }
+
+  @IsTest
   static void rejectsInvalidPayloads() {
     Map<String, String> cases = new Map<String, String>{
       'not json' => 'invalid_json',
