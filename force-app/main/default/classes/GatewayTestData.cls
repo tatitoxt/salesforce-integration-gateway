@@ -97,6 +97,48 @@ public class GatewayTestData {
     );
   }
 
+  public static String disputeEvent(
+    String eventId,
+    String disputeId,
+    String paymentId,
+    Long amountMinor,
+    String currencyCode
+  ) {
+    return envelope(
+      eventId,
+      PaymentEventPayload.TYPE_DISPUTE_CREATED,
+      new Map<String, Object>{
+        'id' => disputeId,
+        'object' => 'dispute',
+        'amount' => amountMinor,
+        'currency' => currencyCode,
+        'payment_intent' => paymentId,
+        'reason' => 'fraudulent'
+      }
+    );
+  }
+
+  public static String invoicePaidEvent(
+    String eventId,
+    String invoiceId,
+    String invoiceNumber,
+    Long amountPaidMinor,
+    String currencyCode
+  ) {
+    return envelope(
+      eventId,
+      PaymentEventPayload.TYPE_INVOICE_PAID,
+      new Map<String, Object>{
+        'id' => invoiceId,
+        'object' => 'invoice',
+        'number' => invoiceNumber,
+        'amount_paid' => amountPaidMinor,
+        'currency' => currencyCode,
+        'customer' => 'cus_synthetic'
+      }
+    );
+  }
+
   public static String envelope(
     String eventId,
     String type,

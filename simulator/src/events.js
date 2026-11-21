@@ -97,6 +97,57 @@ function refundCreated({
   });
 }
 
+function disputeCreated({
+  paymentId,
+  amount,
+  currency = "usd",
+  reason = "fraudulent",
+  disputeId = randomId("dp_sim"),
+  eventId = randomId("evt_sim"),
+  created = Math.floor(Date.now() / 1000)
+}) {
+  if (!paymentId) {
+    throw new Error("dispute requires paymentId");
+  }
+  return envelope({
+    id: eventId,
+    type: "charge.dispute.created",
+    created,
+    object: {
+      id: disputeId,
+      object: "dispute",
+      amount: toMinorUnits(amount, currency),
+      currency: currency.toLowerCase(),
+      payment_intent: paymentId,
+      reason
+    }
+  });
+}
+
+function invoicePaid({
+  invoiceNumber,
+  amountPaid,
+  currency = "usd",
+  invoiceId = randomId("in_sim"),
+  eventId = randomId("evt_sim"),
+  customer = "cus_synthetic_demo",
+  created = Math.floor(Date.now() / 1000)
+}) {
+  return envelope({
+    id: eventId,
+    type: "invoice.paid",
+    created,
+    object: {
+      id: invoiceId,
+      object: "invoice",
+      number: invoiceNumber,
+      amount_paid: toMinorUnits(amountPaid, currency),
+      currency: currency.toLowerCase(),
+      customer
+    }
+  });
+}
+
 /**
  * Named, synthetic scenarios matching the demo invoices in scripts/demo-data.apex.
  * Each returns an ordered list of events.
@@ -132,6 +183,22 @@ const SCENARIOS = {
   "refund-before-payment": () => [
     refundCreated({ paymentId: randomId("pi_sim_missing"), amount: 25 })
   ],
+  dispute: () => {
+    const payment = paymentSucceeded({
+      invoiceNumber: "INV-DEMO-0001",
+      amount: 1200
+    });
+    return [
+      payment,
+      disputeCreated({ paymentId: payment.data.object.id, amount: 1200 })
+    ];
+  },
+  "dispute-before-payment": () => [
+    disputeCreated({ paymentId: randomId("pi_sim_missing"), amount: 25 })
+  ],
+  "invoice-paid-upstream": () => [
+    invoicePaid({ invoiceNumber: "INV-DEMO-0001", amountPaid: 1200 })
+  ],
   duplicate: () => {
     const event = paymentSucceeded({
       invoiceNumber: "INV-DEMO-0005",
@@ -159,6 +226,8 @@ function bulk({
 module.exports = {
   paymentSucceeded,
   refundCreated,
+  disputeCreated,
+  invoicePaid,
   toMinorUnits,
   SCENARIOS,
   bulk

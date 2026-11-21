@@ -413,4 +413,153 @@ private class PaymentEventServiceTest {
     );
     Assert.areEqual('Paid', invoice(0).Status__c);
   }
+
+  @IsTest
+  static void disputeOnAppliedPaymentIsRecordedForReview() {
+    List<Payment_Event__c> records = process(
+      new List<String>{
+        GatewayTestData.paymentEvent(
+          'evt_p',
+          'pi_disp',
+          GatewayTestData.invoiceNumber(0),
+          10000,
+          'usd'
+        ),
+        GatewayTestData.disputeEvent('evt_d', 'dp_1', 'pi_disp', 10000, 'usd')
+      }
+    );
+    Payment__c dispute = [
+      SELECT Status__c, Exception_Reason__c, Original_Payment__c, Invoice__c
+      FROM Payment__c
+      WHERE Type__c = 'Dispute'
+    ];
+    Assert.areEqual('Exception', dispute.Status__c);
+    Assert.areEqual(
+      PaymentEventService.REASON_DISPUTE_OPENED,
+      dispute.Exception_Reason__c
+    );
+    Assert.isNotNull(dispute.Original_Payment__c);
+    Assert.isNotNull(dispute.Invoice__c);
+    Payment_Event__c record = GatewayTestData.reload(records[1].Id);
+    Assert.areEqual('Needs_Review', record.Status__c);
+    Assert.areEqual(
+      PaymentEventService.REASON_DISPUTE_OPENED,
+      record.Exception_Reason__c
+    );
+  }
+
+  @IsTest
+  static void disputeForUnknownPaymentRetries() {
+    List<Payment_Event__c> records = process(
+      new List<String>{
+        GatewayTestData.disputeEvent(
+          'evt_d',
+          'dp_orphan',
+          'pi_missing',
+          2500,
+          'usd'
+        )
+      }
+    );
+    Payment_Event__c record = GatewayTestData.reload(records[0].Id);
+    Assert.areEqual('Retry_Scheduled', record.Status__c);
+    Assert.areEqual(
+      PaymentEventService.REASON_ORIGINAL_NOT_FOUND,
+      record.Exception_Reason__c
+    );
+  }
+
+  @IsTest
+  static void duplicateDisputeIsRecordedOnce() {
+    List<Payment_Event__c> records = process(
+      new List<String>{
+        GatewayTestData.paymentEvent(
+          'evt_p',
+          'pi_dup',
+          GatewayTestData.invoiceNumber(0),
+          5000,
+          'usd'
+        ),
+        GatewayTestData.disputeEvent('evt_d1', 'dp_dup', 'pi_dup', 5000, 'usd'),
+        GatewayTestData.disputeEvent('evt_d2', 'dp_dup', 'pi_dup', 5000, 'usd')
+      }
+    );
+    Assert.areEqual(
+      1,
+      [SELECT COUNT() FROM Payment__c WHERE Type__c = 'Dispute']
+    );
+    Assert.areEqual(
+      'Processed',
+      GatewayTestData.reload(records[2].Id).Status__c
+    );
+  }
+
+  @IsTest
+  static void invoicePaidOnOpenInvoiceNeedsReview() {
+    List<Payment_Event__c> records = process(
+      new List<String>{
+        GatewayTestData.invoicePaidEvent(
+          'evt_ip',
+          'in_1',
+          GatewayTestData.invoiceNumber(0),
+          10000,
+          'usd'
+        )
+      }
+    );
+    Payment_Event__c record = GatewayTestData.reload(records[0].Id);
+    Assert.areEqual('Needs_Review', record.Status__c);
+    Assert.areEqual(
+      PaymentEventService.REASON_INVOICE_BALANCE_REMAINING,
+      record.Exception_Reason__c
+    );
+    Assert.areEqual(0, [SELECT COUNT() FROM Payment__c]);
+  }
+
+  @IsTest
+  static void invoicePaidOnSettledInvoiceIsProcessed() {
+    List<Payment_Event__c> records = process(
+      new List<String>{
+        GatewayTestData.paymentEvent(
+          'evt_p',
+          'pi_settle',
+          GatewayTestData.invoiceNumber(0),
+          10000,
+          'usd'
+        ),
+        GatewayTestData.invoicePaidEvent(
+          'evt_ip',
+          'in_1',
+          GatewayTestData.invoiceNumber(0),
+          10000,
+          'usd'
+        )
+      }
+    );
+    Assert.areEqual(
+      'Processed',
+      GatewayTestData.reload(records[1].Id).Status__c
+    );
+  }
+
+  @IsTest
+  static void invoicePaidForUnknownInvoiceNeedsReview() {
+    List<Payment_Event__c> records = process(
+      new List<String>{
+        GatewayTestData.invoicePaidEvent(
+          'evt_ip',
+          'in_x',
+          'INV-DOES-NOT-EXIST',
+          100,
+          'usd'
+        )
+      }
+    );
+    Payment_Event__c record = GatewayTestData.reload(records[0].Id);
+    Assert.areEqual('Needs_Review', record.Status__c);
+    Assert.areEqual(
+      PaymentEventService.REASON_INVOICE_NOT_FOUND,
+      record.Exception_Reason__c
+    );
+  }
 }
