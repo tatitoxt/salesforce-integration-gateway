@@ -25,7 +25,7 @@ Payment processors deliver events (payment succeeded, refund created) as signed 
 | Authentication   | `Stripe-Signature: t=<unix>,v1=<hex>` HMAC-SHA256 over `"<t>.<raw body>"`, constant-time compare, 300 s timestamp tolerance, multiple `v1` values for secret rotation (`WebhookSignatureVerifier`)                                                                                                                                                                          |
 | Secret storage   | Protected hierarchy custom setting `Payment_Gateway_Settings__c`; missing secret fails closed with HTTP 503 ([ADR 0001](docs/adr/0001-protected-custom-setting-for-signing-secret.md))                                                                                                                                                                                      |
 | Idempotency      | Unique `Payment_Event__c.External_Event_Id__c`; duplicates return HTTP 200 `duplicate` (including concurrent-insert races); payments are also unique by `External_Payment_Id__c`                                                                                                                                                                                            |
-| Async processing | `PaymentEventProcessor` Queueable, 50 events per run (bounded by heap; payloads are capped at 64 KB), exponential backoff `2^attempts` minutes capped at 60, `Dead_Letter` after `Max_Event_Attempts__c`; `GatewaySweeper` schedulable as a safety net ([ADR 0002](docs/adr/0002-async-processing-and-retry.md))                                                            |
+| Async processing | `PaymentEventProcessor` Queueable, 50 events per run (bounded by heap; payloads are capped at 64 KB), exponential backoff `2^attempts` minutes capped at 60, `Dead_Letter` after `Max_Event_Attempts__c`; a `System.Finalizer` (`PaymentEventRetryFinalizer`) re-enqueues the processor immediately when the job dies on an unhandled exception or governor limit — bounded at 3 consecutive crashes — and `GatewaySweeper` schedulable stays as the safety net ([ADR 0002](docs/adr/0002-async-processing-and-retry.md))                                                            |
 | Domain           | `Invoice__c`, `Payment__c` (payments, refunds and disputes), matching by invoice number, partial payments, overpayments, refunds linked to the original payment, disputes recorded against the original payment for review, `invoice.paid` events reconciled against the local balance, currency checks, invoice roll-ups (`Open` / `Partially_Paid` / `Paid` / `Overpaid`) |
 | Exceptions queue | Events end in `Needs_Review` with a reason code (`INVOICE_NOT_FOUND`, `CURRENCY_MISMATCH`, `OVERPAYMENT`, `REFUND_EXCEEDS_PAYMENT`, …), `Retry_Scheduled` or `Dead_Letter`                                                                                                                                                                                                  |
 | Billing sync     | `BillingSyncQueueable` → `PUT callout:Billing_Platform/v1/invoices/{number}/payment-status` with an `Idempotency-Key`; 408/429/5xx/timeouts retried with backoff, other 4xx marked `Failed`                                                                                                                                                                                 |
@@ -68,7 +68,7 @@ flowchart LR
   CTRL --> PAY
 ```
 
-The HTTP request only verifies, de-duplicates and stores the event (HTTP 202). Matching and callouts run in Queueables. A Queueable may enqueue a single child job, so each job chains at most one follow-up (more backlog, then billing sync, then a delayed retry of up to 10 minutes). The sweeper picks up anything else.
+The HTTP request only verifies, de-duplicates and stores the event (HTTP 202). Matching and callouts run in Queueables. A Queueable may enqueue a single child job, so each job chains at most one follow-up (more backlog, then billing sync, then a delayed retry of up to 10 minutes). If the job itself crashes — including governor-limit deaths no catch block can see — its transaction finalizer re-enqueues it at once with a bounded crash depth, and the sweeper picks up anything else.
 
 ## Quickstart
 
@@ -125,7 +125,7 @@ To receive real HTTP traffic, expose the Apex REST endpoint to an integration us
 | Apex (PMD)                                                                             | `sf scanner run --target force-app/main/default/classes --engine pmd` | 0 findings of severity 1–2                         |
 | Apex tests                                                                             | `sf apex run test --test-level RunLocalTests` (needs an org)          | 75 test methods in 10 classes, **not executed yet** |
 
-Apex test classes cover: valid webhook (202 + async processing), bad signature, stale timestamp, missing secret (503), duplicate events, payload validation, matching, partial payments, overpayment, currency mismatch, refunds, refund-before-payment retry with backoff and dead-letter, billing sync via `HttpCalloutMock` (200, 503, 429/timeout, 422, max attempts), a 200-record bulk run with query/DML count assertions, the reconciliation controller, trigger bypass, the sweeper, and a billing-API
+Apex test classes cover: valid webhook (202 + async processing), bad signature, stale timestamp, missing secret (503), duplicate events, payload validation, matching, partial payments, overpayment, currency mismatch, refunds, refund-before-payment retry with backoff and dead-letter, billing sync via `HttpCalloutMock` (200, 503, 429/timeout, 422, max attempts), a 200-record bulk run with query/DML count assertions, the reconciliation controller, trigger bypass, the sweeper, the crash-recovery finalizer (success is a no-op, crash requeues with depth, depth cap stops requeueing), and a billing-API
 contract suite (`BillingContractTest`: PUT/JSON + idempotency key, exact body
 schema, URL-encoded invoice number, key stability/payment sensitivity and the
 external-id response field).
@@ -153,7 +153,6 @@ external-id response field).
 ## Roadmap
 
 - Run the Apex suite in CI against a scratch org and publish coverage.
-- Platform Event or Finalizer-based retry instead of the scheduled sweeper.
 
 ## License
 

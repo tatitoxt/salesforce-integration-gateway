@@ -17,10 +17,17 @@ several objects and can fail transiently (row locks, events arriving out of orde
   `Max_Event_Attempts__c`, then `Dead_Letter`.
 - Queueables can enqueue at most one child from async context, so a `GatewaySweeper`
   Schedulable re-enqueues anything due. Retries never depend on a single chain.
+- A `System.Finalizer` (`PaymentEventRetryFinalizer`) is attached to each processor
+  job: when the job dies on an unhandled exception or a governor limit — where no
+  catch block can run — the finalizer re-enqueues it immediately. Crash depth is
+  carried in job state and capped at `MAX_CRASH_RETRIES` so a persistent poison
+  job falls back to the sweeper instead of hot-looping.
 - Billing sync follows the same pattern in `BillingSyncQueueable` (callouts first, DML after).
 
 ## Consequences
 
-- Delivery latency is bounded by Queueable start time plus the sweeper interval.
+- Delivery latency is bounded by Queueable start time plus the sweeper interval;
+  crash recovery is bounded by the finalizer (immediate) or the sweeper after
+  `MAX_CRASH_RETRIES` consecutive crashes.
 - The endpoint is called with an OAuth access token of an integration user; exposing it
   anonymously through a Salesforce Site is out of scope for this repository.
