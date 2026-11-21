@@ -111,6 +111,40 @@ public inherited sharing class PaymentEventService {
       invoicesByNumber.put(invoice.Invoice_Number__c.toUpperCase(), invoice);
     }
 
+    // Payments without an invoice reference get one more shot: when exactly
+    // one payable invoice matches currency + outstanding balance, it is the
+    // match. Ambiguous or empty candidate sets fall through to Unmatched.
+    Set<String> unmatchedCurrencies = new Set<String>();
+    Set<Decimal> unmatchedAmounts = new Set<Decimal>();
+    for (Payment_Event__c record : events) {
+      PaymentEventPayload payload = payloads.get(record.Id);
+      if (
+        String.isBlank(payload.invoiceNumber) &&
+        !knownPaymentIds.contains(payload.objectId) &&
+        String.isNotBlank(payload.currencyCode) &&
+        payload.amount != null
+      ) {
+        unmatchedCurrencies.add(payload.currencyCode);
+        unmatchedAmounts.add(payload.amount);
+      }
+    }
+    Map<String, List<Invoice__c>> byBalance = new Map<String, List<Invoice__c>>();
+    for (
+      Invoice__c invoice : invoiceSelector.selectPayableByCurrenciesAndAmounts(
+        unmatchedCurrencies,
+        unmatchedAmounts
+      )
+    ) {
+      String key =
+        invoice.Currency_Code__c.toUpperCase() +
+        '|' +
+        invoice.Balance_Due__c;
+      if (!byBalance.containsKey(key)) {
+        byBalance.put(key, new List<Invoice__c>());
+      }
+      byBalance.get(key).add(invoice);
+    }
+
     Map<Id, Decimal> remainingByInvoice = new Map<Id, Decimal>();
     List<Payment__c> toInsert = new List<Payment__c>();
     List<Payment_Event__c> insertedFor = new List<Payment_Event__c>();
@@ -132,7 +166,21 @@ public inherited sharing class PaymentEventService {
       Invoice__c invoice = String.isBlank(payload.invoiceNumber)
         ? null
         : invoicesByNumber.get(payload.invoiceNumber.toUpperCase());
-      if (String.isBlank(payload.invoiceNumber)) {
+      List<Invoice__c> amountCandidates = String.isBlank(
+          payload.invoiceNumber
+        ) && String.isNotBlank(payload.currencyCode)
+        ? byBalance.get(
+            payload.currencyCode.toUpperCase() + '|' + payload.amount
+          )
+        : null;
+      Invoice__c exactAmountInvoice = amountCandidates != null &&
+        amountCandidates.size() == 1
+        ? amountCandidates[0]
+        : null;
+      if (invoice == null && exactAmountInvoice != null) {
+        invoice = exactAmountInvoice;
+      }
+      if (String.isBlank(payload.invoiceNumber) && invoice == null) {
         reason = REASON_MISSING_INVOICE_REFERENCE;
         payment.Status__c = 'Unmatched';
       } else if (invoice == null) {
@@ -152,7 +200,9 @@ public inherited sharing class PaymentEventService {
         payment.Invoice__c = invoice.Id;
       } else {
         payment.Status__c = 'Applied';
-        payment.Match_Method__c = 'Invoice_Number';
+        payment.Match_Method__c = String.isBlank(payload.invoiceNumber)
+          ? 'Exact_Amount'
+          : 'Invoice_Number';
         payment.Invoice__c = invoice.Id;
         Decimal remaining = remainingByInvoice.containsKey(invoice.Id)
           ? remainingByInvoice.get(invoice.Id)
