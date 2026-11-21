@@ -6,6 +6,7 @@ public inherited sharing class PaymentEventPayload {
   public static final String TYPE_PAYMENT_SUCCEEDED = 'payment_intent.succeeded';
   public static final String TYPE_REFUND_CREATED = 'refund.created';
   public static final String TYPE_DISPUTE_CREATED = 'charge.dispute.created';
+  public static final String TYPE_DISPUTE_CLOSED = 'charge.dispute.closed';
   public static final String TYPE_INVOICE_PAID = 'invoice.paid';
 
   private static final Set<String> ZERO_DECIMAL_CURRENCIES = new Set<String>{
@@ -36,6 +37,7 @@ public inherited sharing class PaymentEventPayload {
   public String invoiceNumber;
   public String customerReference;
   public String paymentIntentId;
+  public String disputeStatus;
 
   public class PayloadException extends Exception {
   }
@@ -52,13 +54,21 @@ public inherited sharing class PaymentEventPayload {
     return eventType == TYPE_DISPUTE_CREATED;
   }
 
+  public Boolean isDisputeClosed() {
+    return eventType == TYPE_DISPUTE_CLOSED;
+  }
+
   public Boolean isInvoicePaid() {
     return eventType == TYPE_INVOICE_PAID;
   }
 
   /** Types the service interprets; anything else parses leniently and is Ignored. */
   public Boolean isActionable() {
-    return isPayment() || isRefund() || isDispute() || isInvoicePaid();
+    return isPayment() ||
+      isRefund() ||
+      isDispute() ||
+      isDisputeClosed() ||
+      isInvoicePaid();
   }
 
   public static PaymentEventPayload parse(String body) {
@@ -106,6 +116,10 @@ public inherited sharing class PaymentEventPayload {
       payload.currencyCode
     );
     payload.paymentIntentId = asString(dataObject.get('payment_intent'));
+    if (payload.isDisputeClosed()) {
+      // Closed disputes carry the outcome on `status`: won | lost.
+      payload.disputeStatus = asString(dataObject.get('status'));
+    }
     payload.customerReference = asString(dataObject.get('customer'));
     Map<String, Object> metadata = asMap(dataObject.get('metadata'));
     if (metadata != null) {

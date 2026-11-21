@@ -18,6 +18,10 @@ public inherited sharing class PaymentEventService {
   public static final String REASON_ORIGINAL_NOT_APPLIED = 'ORIGINAL_PAYMENT_NOT_APPLIED';
   public static final String REASON_REFUND_EXCEEDS_PAYMENT = 'REFUND_EXCEEDS_PAYMENT';
   public static final String REASON_DISPUTE_OPENED = 'DISPUTE_OPENED';
+  public static final String REASON_DISPUTE_WON = 'DISPUTE_WON';
+  public static final String REASON_DISPUTE_LOST = 'DISPUTE_LOST';
+  public static final String REASON_DISPUTE_NOT_FOUND = 'DISPUTE_NOT_FOUND';
+  public static final String REASON_UNKNOWN_DISPUTE_STATUS = 'UNKNOWN_DISPUTE_STATUS';
   public static final String REASON_INVOICE_BALANCE_REMAINING = 'INVOICE_BALANCE_REMAINING';
   public static final String REASON_INVALID_PAYLOAD = 'INVALID_PAYLOAD';
   public static final String REASON_DML_ERROR = 'DML_ERROR';
@@ -33,6 +37,7 @@ public inherited sharing class PaymentEventService {
     List<Payment_Event__c> paymentEvents = new List<Payment_Event__c>();
     List<Payment_Event__c> refundEvents = new List<Payment_Event__c>();
     List<Payment_Event__c> disputeEvents = new List<Payment_Event__c>();
+    List<Payment_Event__c> disputeClosedEvents = new List<Payment_Event__c>();
     List<Payment_Event__c> invoicePaidEvents = new List<Payment_Event__c>();
     for (Payment_Event__c record : events) {
       record.Attempts__c =
@@ -51,6 +56,8 @@ public inherited sharing class PaymentEventService {
         refundEvents.add(record);
       } else if (payload.isDispute()) {
         disputeEvents.add(record);
+      } else if (payload.isDisputeClosed()) {
+        disputeClosedEvents.add(record);
       } else if (payload.isInvoicePaid()) {
         invoicePaidEvents.add(record);
       } else {
@@ -63,6 +70,7 @@ public inherited sharing class PaymentEventService {
       applyPayments(paymentEvents, payloads);
       applyRefunds(refundEvents, payloads);
       applyDisputes(disputeEvents, payloads);
+      applyDisputeClosures(disputeClosedEvents, payloads);
       applyInvoicePaid(invoicePaidEvents, payloads);
     } catch (Exception e) {
       Database.rollback(beforeApply);
@@ -71,6 +79,7 @@ public inherited sharing class PaymentEventService {
       );
       affected.addAll(refundEvents);
       affected.addAll(disputeEvents);
+      affected.addAll(disputeClosedEvents);
       affected.addAll(invoicePaidEvents);
       for (Payment_Event__c record : affected) {
         scheduleRetry(
@@ -446,6 +455,95 @@ public inherited sharing class PaymentEventService {
         markNeedsReview(record, REASON_INVOICE_BALANCE_REMAINING);
       } else {
         markFinal(record, 'Processed', null);
+      }
+    }
+  }
+
+  /**
+   * `charge.dispute.closed` resolves the Dispute Payment__c recorded by
+   * `charge.dispute.created`. Won returns the dispute to Applied (funds kept);
+   * lost keeps it in Exception with DISPUTE_LOST so a human can write it off.
+   * A close that beats its own create retries like the other ordering races.
+   */
+  private void applyDisputeClosures(
+    List<Payment_Event__c> events,
+    Map<Id, PaymentEventPayload> payloads
+  ) {
+    if (events.isEmpty()) {
+      return;
+    }
+    Set<String> disputeIds = new Set<String>();
+    for (Payment_Event__c record : events) {
+      disputeIds.add(payloads.get(record.Id).objectId);
+    }
+    Map<String, Payment__c> disputesByExternalId = new Map<String, Payment__c>();
+    for (Payment__c dispute : paymentSelector.selectByExternalIds(disputeIds)) {
+      disputesByExternalId.put(dispute.External_Payment_Id__c, dispute);
+    }
+
+    List<Payment__c> toUpdate = new List<Payment__c>();
+    List<Payment_Event__c> updatedFor = new List<Payment_Event__c>();
+    List<String> reviewReasons = new List<String>();
+    for (Payment_Event__c record : events) {
+      PaymentEventPayload payload = payloads.get(record.Id);
+      Payment__c dispute = disputesByExternalId.get(payload.objectId);
+      if (dispute == null || dispute.Type__c != 'Dispute') {
+        scheduleRetry(
+          record,
+          REASON_DISPUTE_NOT_FOUND,
+          'Closed dispute ' + payload.objectId + ' was never recorded'
+        );
+        continue;
+      }
+      if (dispute.Status__c != 'Exception') {
+        markFinal(
+          record,
+          'Processed',
+          'Dispute ' + payload.objectId + ' already resolved'
+        );
+        continue;
+      }
+      String outcome = payload.disputeStatus == null
+        ? ''
+        : payload.disputeStatus.toLowerCase();
+      if (outcome == 'won') {
+        dispute.Status__c = 'Applied';
+        dispute.Exception_Reason__c = REASON_DISPUTE_WON;
+        toUpdate.add(dispute);
+        updatedFor.add(record);
+        reviewReasons.add(null);
+      } else if (outcome == 'lost') {
+        dispute.Exception_Reason__c = REASON_DISPUTE_LOST;
+        toUpdate.add(dispute);
+        updatedFor.add(record);
+        reviewReasons.add(REASON_DISPUTE_LOST);
+      } else {
+        markNeedsReview(record, REASON_UNKNOWN_DISPUTE_STATUS);
+      }
+    }
+    updateAndClassify(toUpdate, updatedFor, reviewReasons);
+  }
+
+  private void updateAndClassify(
+    List<Payment__c> payments,
+    List<Payment_Event__c> sourceEvents,
+    List<String> reviewReasons
+  ) {
+    if (payments.isEmpty()) {
+      return;
+    }
+    List<Database.SaveResult> results = Database.update(payments, false);
+    for (Integer i = 0; i < results.size(); i++) {
+      Payment_Event__c record = sourceEvents[i];
+      Database.SaveResult result = results[i];
+      if (result.isSuccess()) {
+        if (reviewReasons[i] == null) {
+          markFinal(record, 'Processed', null);
+        } else {
+          markNeedsReview(record, reviewReasons[i]);
+        }
+      } else {
+        scheduleRetry(record, REASON_DML_ERROR, describe(result.getErrors()));
       }
     }
   }

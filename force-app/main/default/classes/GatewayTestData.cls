@@ -118,6 +118,28 @@ public class GatewayTestData {
     );
   }
 
+  public static String disputeClosedEvent(
+    String eventId,
+    String disputeId,
+    String paymentId,
+    String status,
+    Long amountMinor,
+    String currencyCode
+  ) {
+    return envelope(
+      eventId,
+      PaymentEventPayload.TYPE_DISPUTE_CLOSED,
+      new Map<String, Object>{
+        'id' => disputeId,
+        'object' => 'dispute',
+        'amount' => amountMinor,
+        'currency' => currencyCode,
+        'payment_intent' => paymentId,
+        'status' => status
+      }
+    );
+  }
+
   public static String invoicePaidEvent(
     String eventId,
     String invoiceId,
