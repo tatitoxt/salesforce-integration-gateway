@@ -6,6 +6,7 @@ import getEventDetail from "@salesforce/apex/ReconciliationController.getEventDe
 import searchInvoices from "@salesforce/apex/ReconciliationController.searchInvoices";
 import retryEvent from "@salesforce/apex/ReconciliationController.retryEvent";
 import matchToInvoice from "@salesforce/apex/ReconciliationController.matchToInvoice";
+import suggestInvoices from "@salesforce/apex/ReconciliationController.suggestInvoices";
 
 const STATUS_OPTIONS = [
   { label: "Needs review", value: "Needs_Review" },
@@ -56,6 +57,7 @@ export default class ReconciliationConsole extends LightningElement {
   detail;
   searchTerm = "";
   invoiceResults = [];
+  suggestions = [];
   hasSearched = false;
   selectedInvoiceId;
   isBusy = false;
@@ -106,6 +108,17 @@ export default class ReconciliationConsole extends LightningElement {
 
   get searchedWithoutResults() {
     return this.hasSearched && this.invoiceResults.length === 0;
+  }
+
+  get suggestionOptions() {
+    return this.suggestions.map((invoice) => ({
+      value: invoice.Id,
+      label: `${invoice.Invoice_Number__c} · ${invoice.Currency_Code__c} ${invoice.Balance_Due__c} due · ${invoice.Status__c}`
+    }));
+  }
+
+  get hasSuggestions() {
+    return this.suggestions.length > 0;
   }
 
   get invoiceOptions() {
@@ -171,6 +184,13 @@ export default class ReconciliationConsole extends LightningElement {
     this.resetMatch();
     try {
       this.detail = await getEventDetail({ eventId });
+      if (this.detail?.canMatch) {
+        try {
+          this.suggestions = (await suggestInvoices({ eventId })) ?? [];
+        } catch {
+          this.suggestions = []; // suggestions are a convenience, not required
+        }
+      }
     } catch (error) {
       this.detail = undefined;
       this.toast("error", "Could not load event", reduceError(error));
@@ -214,6 +234,7 @@ export default class ReconciliationConsole extends LightningElement {
     clearTimeout(this.searchTimer);
     this.searchTerm = "";
     this.invoiceResults = [];
+    this.suggestions = [];
     this.hasSearched = false;
     this.selectedInvoiceId = undefined;
   }

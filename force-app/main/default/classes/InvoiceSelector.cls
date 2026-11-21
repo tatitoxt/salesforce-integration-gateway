@@ -121,6 +121,33 @@ public inherited sharing class InvoiceSelector {
     ];
   }
 
+  /**
+   * Open invoices in one currency, for amount-based match suggestions. A
+   * bounded pool is ranked in Apex by closeness of Balance_Due__c to the
+   * payment amount (SOQL cannot order by an expression).
+   */
+  public List<Invoice__c> selectOpenByCurrencyAsUser(
+    String currency,
+    Integer limitSize
+  ) {
+    return [
+      SELECT
+        Id,
+        Name,
+        Invoice_Number__c,
+        Customer_Reference__c,
+        Currency_Code__c,
+        Total_Amount__c,
+        Balance_Due__c,
+        Status__c
+      FROM Invoice__c
+      WHERE Status__c IN :OPEN_STATUSES AND Currency_Code__c = :currency
+      WITH USER_MODE
+      ORDER BY Balance_Due__c DESC
+      LIMIT :limitSize
+    ];
+  }
+
   public List<Invoice__c> selectByIdAsUser(Id invoiceId) {
     return [
       SELECT Id, Invoice_Number__c, Currency_Code__c, Status__c, Balance_Due__c

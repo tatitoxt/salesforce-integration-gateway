@@ -18,6 +18,8 @@ public with sharing class ReconciliationController {
   };
   private static final Integer QUEUE_LIMIT = 200;
   private static final Integer SEARCH_LIMIT = 20;
+  private static final Integer SUGGESTION_LIMIT = 5;
+  private static final Integer SUGGESTION_POOL = 100;
 
   public class EventDetail {
     @AuraEnabled
@@ -58,6 +60,41 @@ public with sharing class ReconciliationController {
       record.Status__c == 'Needs_Review' &&
       findMatchablePayment(detail.payments) != null;
     return detail;
+  }
+
+  /**
+   * Open invoices in the payment's currency, ranked by closeness of
+   * Balance_Due__c to the payment amount (exact matches first). Returns an
+   * empty list when the event has no matchable payment.
+   */
+  @AuraEnabled
+  public static List<Invoice__c> suggestInvoices(Id eventId) {
+    loadEvent(eventId); // 404s for missing or inaccessible events
+    Payment__c payment = findMatchablePayment(
+      new PaymentSelector().selectBySourceEventAsUser(eventId)
+    );
+    if (
+      payment == null ||
+      payment.Amount__c == null ||
+      String.isBlank(payment.Currency_Code__c)
+    ) {
+      return new List<Invoice__c>();
+    }
+    List<Invoice__c> candidates = new InvoiceSelector()
+      .selectOpenByCurrencyAsUser(
+        payment.Currency_Code__c,
+        SUGGESTION_POOL
+      );
+    List<InvoiceByBalanceDistance> ranked = new List<InvoiceByBalanceDistance>();
+    for (Invoice__c invoice : candidates) {
+      ranked.add(new InvoiceByBalanceDistance(invoice, payment.Amount__c));
+    }
+    ranked.sort();
+    List<Invoice__c> suggestions = new List<Invoice__c>();
+    for (Integer i = 0; i < Math.min(SUGGESTION_LIMIT, ranked.size()); i++) {
+      suggestions.add(ranked[i].invoice);
+    }
+    return suggestions;
   }
 
   @AuraEnabled(cacheable=true)
@@ -172,6 +209,35 @@ public with sharing class ReconciliationController {
       return JSON.serializePretty(JSON.deserializeUntyped(payload));
     } catch (JSONException e) {
       return payload;
+    }
+  }
+
+  /** Sorts candidates by |Balance_Due__c - payment amount|, blanks last. */
+  private class InvoiceByBalanceDistance implements Comparable {
+    public Invoice__c invoice;
+    private Decimal distance;
+
+    InvoiceByBalanceDistance(Invoice__c invoice, Decimal amount) {
+      this.invoice = invoice;
+      this.distance =
+        invoice.Balance_Due__c == null
+          ? null
+          : Math.abs(invoice.Balance_Due__c - amount);
+    }
+
+    public Integer compareTo(Object other) {
+      Decimal mine = distance;
+      Decimal theirs = ((InvoiceByBalanceDistance) other).distance;
+      if (mine == null && theirs == null) {
+        return 0;
+      }
+      if (mine == null) {
+        return 1;
+      }
+      if (theirs == null) {
+        return -1;
+      }
+      return mine == theirs ? 0 : (mine < theirs ? -1 : 1);
     }
   }
 
