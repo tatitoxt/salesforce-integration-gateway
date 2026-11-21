@@ -94,6 +94,55 @@ private class ReconciliationControllerTest {
   }
 
   @IsTest
+  static void suggestInvoicesRanksByBalanceDistance() {
+    // Seed extra candidates: farther USD open invoice, a closed one, another currency.
+    GatewayTestData.invoices(1, 150, 'USD');
+    Invoice__c paid = GatewayTestData.invoices(1, 100, 'USD')[0];
+    paid.Status__c = 'Paid';
+    update paid;
+    GatewayTestData.invoices(1, 100, 'EUR');
+
+    List<Invoice__c> suggestions = ReconciliationController.suggestInvoices(
+      byExternalId('evt_unmatched').Id
+    );
+
+    Assert.isFalse(suggestions.isEmpty(), 'open USD invoices are suggested');
+    Assert.isTrue(suggestions.size() <= 5, 'suggestions are capped');
+    Assert.areEqual(
+      100,
+      suggestions[0].Balance_Due__c,
+      'an exact-balance invoice ranks first'
+    );
+    for (Invoice__c invoice : suggestions) {
+      Assert.areEqual('USD', invoice.Currency_Code__c);
+      Assert.isTrue(
+        InvoiceSelector.OPEN_STATUSES.contains(invoice.Status__c),
+        'only open invoices are suggested'
+      );
+      Assert.areNotEqual(paid.Id, invoice.Id, 'closed invoices are excluded');
+    }
+    // Distances are non-decreasing down the list.
+    Decimal previous = -1;
+    for (Invoice__c invoice : suggestions) {
+      Decimal distance = Math.abs(invoice.Balance_Due__c - 100);
+      Assert.isTrue(
+        distance >= previous,
+        'suggestions are ordered by balance distance'
+      );
+      previous = distance;
+    }
+  }
+
+  @IsTest
+  static void suggestInvoicesIsEmptyWithoutAMatchablePayment() {
+    Assert.isTrue(
+      ReconciliationController.suggestInvoices(byExternalId('evt_orphan').Id)
+        .isEmpty(),
+      'refund-only events offer no suggestions'
+    );
+  }
+
+  @IsTest
   static void manualMatchRejectsCurrencyMismatchAndClosedInvoices() {
     Payment_Event__c record = byExternalId('evt_unmatched');
     Invoice__c invoice = [

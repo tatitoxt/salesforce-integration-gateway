@@ -101,6 +101,16 @@
 
             <template lwc:if={detail.canMatch}>
               <div data-id="match-panel">
+                <template lwc:if={hasSuggestions}>
+                  <lightning-radio-group
+                    data-id="invoice-suggestions"
+                    name="suggestion"
+                    label="Suggested matches (closest open balance in this currency)"
+                    options={suggestionOptions}
+                    value={selectedInvoiceId}
+                    onchange={handleInvoiceSelect}
+                  ></lightning-radio-group>
+                </template>
                 <lightning-input
                   data-id="invoice-search"
                   type="search"

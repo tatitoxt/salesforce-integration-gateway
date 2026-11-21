@@ -29,7 +29,7 @@ Payment processors deliver events (payment succeeded, refund created) as signed 
 | Domain           | `Invoice__c`, `Payment__c` (payments, refunds and disputes), matching by invoice number, partial payments, overpayments, refunds linked to the original payment, disputes recorded against the original payment for review, `invoice.paid` events reconciled against the local balance, currency checks, invoice roll-ups (`Open` / `Partially_Paid` / `Paid` / `Overpaid`) |
 | Exceptions queue | Events end in `Needs_Review` with a reason code (`INVOICE_NOT_FOUND`, `CURRENCY_MISMATCH`, `OVERPAYMENT`, `REFUND_EXCEEDS_PAYMENT`, …), `Retry_Scheduled` or `Dead_Letter`                                                                                                                                                                                                  |
 | Billing sync     | `BillingSyncQueueable` → `PUT callout:Billing_Platform/v1/invoices/{number}/payment-status` with an `Idempotency-Key`; 408/429/5xx/timeouts retried with backoff, other 4xx marked `Failed`                                                                                                                                                                                 |
-| Console          | `reconciliationConsole` LWC: filter the queue, inspect the pretty-printed payload and payments, retry, search open invoices and manually match                                                                                                                                                                                                                              |
+| Console          | `reconciliationConsole` LWC: filter the queue, inspect the pretty-printed payload and payments, retry, search open invoices, get amount-based match suggestions (`suggestInvoices` ranks open same-currency invoices by |Balance_Due − payment amount|, top 5) and manually match                                                                                                                                                                                                                              |
 | Layering         | One trigger per object → `TriggerHandler` subclasses → services → selectors; collection-based, fixed query/DML count per batch ([ADR 0003](docs/adr/0003-layering.md))                                                                                                                                                                                                      |
 | Simulator        | `webhook-simulator` Node CLI: synthetic scenarios, signing, sending, and a local mock receiver that mirrors the endpoint's synchronous contract                                                                                                                                                                                                                             |
 
@@ -151,7 +151,7 @@ Apex test classes cover: valid webhook (202 + async processing), bad signature, 
 
 - Run the Apex suite in CI against a scratch org and publish coverage.
 - Platform Event or Finalizer-based retry instead of the scheduled sweeper.
-- Amount/customer-based match suggestions in the console and contract tests for the billing API.
+- Contract tests for the billing API.
 
 ## License
 
