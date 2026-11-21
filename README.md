@@ -158,3 +158,7 @@ external-id response field).
 ## License
 
 [MIT](LICENSE) © 2026 Fausto Pastura
+
+## Benchmarks
+
+`simulator/bin/benchmark.js` pushes signed webhooks through the full receiver contract over HTTP: **4,089 events/sec** verified, 1.43 ms p50, and **100% dedup** on a 2,000-event replay — retries never double-create records. See [docs/benchmarks.md](docs/benchmarks.md).
