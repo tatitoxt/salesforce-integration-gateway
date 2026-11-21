@@ -124,6 +124,33 @@ function disputeCreated({
   });
 }
 
+function disputeClosed({
+  disputeId,
+  paymentId,
+  status = "won",
+  amount,
+  currency = "usd",
+  eventId = randomId("evt_sim"),
+  created = Math.floor(Date.now() / 1000)
+}) {
+  if (!disputeId) {
+    throw new Error("disputeClosed requires disputeId");
+  }
+  return envelope({
+    id: eventId,
+    type: "charge.dispute.closed",
+    created,
+    object: {
+      id: disputeId,
+      object: "dispute",
+      amount: toMinorUnits(amount ?? 0, currency),
+      currency: currency.toLowerCase(),
+      payment_intent: paymentId || null,
+      status
+    }
+  });
+}
+
 function invoicePaid({
   invoiceNumber,
   amountPaid,
@@ -196,6 +223,46 @@ const SCENARIOS = {
   "dispute-before-payment": () => [
     disputeCreated({ paymentId: randomId("pi_sim_missing"), amount: 25 })
   ],
+  "dispute-won": () => {
+    const payment = paymentSucceeded({
+      invoiceNumber: "INV-DEMO-0006",
+      amount: 640
+    });
+    const opened = disputeCreated({
+      paymentId: payment.data.object.id,
+      amount: 640
+    });
+    return [
+      payment,
+      opened,
+      disputeClosed({
+        disputeId: opened.data.object.id,
+        paymentId: payment.data.object.id,
+        status: "won",
+        amount: 640
+      })
+    ];
+  },
+  "dispute-lost": () => {
+    const payment = paymentSucceeded({
+      invoiceNumber: "INV-DEMO-0007",
+      amount: 320
+    });
+    const opened = disputeCreated({
+      paymentId: payment.data.object.id,
+      amount: 320
+    });
+    return [
+      payment,
+      opened,
+      disputeClosed({
+        disputeId: opened.data.object.id,
+        paymentId: payment.data.object.id,
+        status: "lost",
+        amount: 320
+      })
+    ];
+  },
   "invoice-paid-upstream": () => [
     invoicePaid({ invoiceNumber: "INV-DEMO-0001", amountPaid: 1200 })
   ],
@@ -227,6 +294,7 @@ module.exports = {
   paymentSucceeded,
   refundCreated,
   disputeCreated,
+  disputeClosed,
   invoicePaid,
   toMinorUnits,
   SCENARIOS,

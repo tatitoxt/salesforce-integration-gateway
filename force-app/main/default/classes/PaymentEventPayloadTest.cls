@@ -47,6 +47,25 @@ private class PaymentEventPayloadTest {
   }
 
   @IsTest
+  static void parsesDisputeClosedEvents() {
+    PaymentEventPayload payload = PaymentEventPayload.parse(
+      GatewayTestData.disputeClosedEvent(
+        'evt_dc',
+        'dp_1',
+        'pi_1',
+        'lost',
+        2500,
+        'usd'
+      )
+    );
+    Assert.isTrue(payload.isDisputeClosed());
+    Assert.isTrue(payload.isActionable());
+    Assert.isFalse(payload.isDispute());
+    Assert.areEqual('dp_1', payload.objectId);
+    Assert.areEqual('lost', payload.disputeStatus);
+  }
+
+  @IsTest
   static void parsesDisputeEvents() {
     PaymentEventPayload payload = PaymentEventPayload.parse(
       GatewayTestData.disputeEvent('evt_d', 'dp_1', 'pi_1', 2500, 'usd')

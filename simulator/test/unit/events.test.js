@@ -6,6 +6,7 @@ const {
   paymentSucceeded,
   refundCreated,
   disputeCreated,
+  disputeClosed,
   invoicePaid,
   toMinorUnits,
   SCENARIOS,
@@ -65,6 +66,30 @@ test("dispute events reference the original payment", () => {
   assert.throws(() => disputeCreated({ amount: 5 }), /paymentId/);
 });
 
+test("dispute.closed events carry the outcome status", () => {
+  const event = disputeClosed({
+    disputeId: "dp_x",
+    paymentId: "pi_x",
+    status: "lost",
+    amount: 10
+  });
+  assert.equal(event.type, "charge.dispute.closed");
+  assert.equal(event.data.object.id, "dp_x");
+  assert.equal(event.data.object.status, "lost");
+  assert.equal(event.data.object.payment_intent, "pi_x");
+  assert.throws(() => disputeClosed({ amount: 5 }), /disputeId/);
+});
+
+test("dispute-won/lost scenarios close a recorded dispute", () => {
+  for (const name of ["dispute-won", "dispute-lost"]) {
+    const [paid, opened, closed] = SCENARIOS[name]();
+    assert.equal(opened.data.object.id, closed.data.object.id);
+    assert.equal(closed.data.object.payment_intent, paid.data.object.id);
+  }
+  assert.equal(SCENARIOS["dispute-won"]()[2].data.object.status, "won");
+  assert.equal(SCENARIOS["dispute-lost"]()[2].data.object.status, "lost");
+});
+
 test("invoice.paid events carry number and amount_paid", () => {
   const event = invoicePaid({
     invoiceNumber: "INV-9",
@@ -83,6 +108,8 @@ test("scenarios produce the documented event shapes", () => {
     "currency-mismatch",
     "dispute",
     "dispute-before-payment",
+    "dispute-lost",
+    "dispute-won",
     "duplicate",
     "full-payment",
     "invoice-paid-upstream",

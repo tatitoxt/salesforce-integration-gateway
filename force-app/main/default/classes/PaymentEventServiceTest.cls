@@ -495,6 +495,152 @@ private class PaymentEventServiceTest {
   }
 
   @IsTest
+  static void disputeClosedWonResolvesRecordedDispute() {
+    List<Payment_Event__c> records = process(
+      new List<String>{
+        GatewayTestData.paymentEvent(
+          'evt_p',
+          'pi_dw',
+          GatewayTestData.invoiceNumber(0),
+          10000,
+          'usd'
+        ),
+        GatewayTestData.disputeEvent('evt_d', 'dp_dw', 'pi_dw', 10000, 'usd'),
+        GatewayTestData.disputeClosedEvent(
+          'evt_dc',
+          'dp_dw',
+          'pi_dw',
+          'won',
+          10000,
+          'usd'
+        )
+      }
+    );
+    Payment__c dispute = [
+      SELECT Status__c, Exception_Reason__c
+      FROM Payment__c
+      WHERE Type__c = 'Dispute'
+    ];
+    Assert.areEqual('Applied', dispute.Status__c);
+    Assert.areEqual(
+      PaymentEventService.REASON_DISPUTE_WON,
+      dispute.Exception_Reason__c
+    );
+    Assert.areEqual(
+      'Processed',
+      GatewayTestData.reload(records[2].Id).Status__c
+    );
+  }
+
+  @IsTest
+  static void disputeClosedLostKeepsDisputeForReview() {
+    List<Payment_Event__c> records = process(
+      new List<String>{
+        GatewayTestData.paymentEvent(
+          'evt_p',
+          'pi_dl',
+          GatewayTestData.invoiceNumber(0),
+          10000,
+          'usd'
+        ),
+        GatewayTestData.disputeEvent('evt_d', 'dp_dl', 'pi_dl', 10000, 'usd'),
+        GatewayTestData.disputeClosedEvent(
+          'evt_dc',
+          'dp_dl',
+          'pi_dl',
+          'lost',
+          10000,
+          'usd'
+        )
+      }
+    );
+    Payment__c dispute = [
+      SELECT Status__c, Exception_Reason__c
+      FROM Payment__c
+      WHERE Type__c = 'Dispute'
+    ];
+    Assert.areEqual('Exception', dispute.Status__c);
+    Assert.areEqual(
+      PaymentEventService.REASON_DISPUTE_LOST,
+      dispute.Exception_Reason__c
+    );
+    Payment_Event__c record = GatewayTestData.reload(records[2].Id);
+    Assert.areEqual('Needs_Review', record.Status__c);
+    Assert.areEqual(
+      PaymentEventService.REASON_DISPUTE_LOST,
+      record.Exception_Reason__c
+    );
+  }
+
+  @IsTest
+  static void disputeClosedWithoutRecordedDisputeRetries() {
+    List<Payment_Event__c> records = process(
+      new List<String>{
+        GatewayTestData.disputeClosedEvent(
+          'evt_dc',
+          'dp_orphan',
+          'pi_missing',
+          'won',
+          2500,
+          'usd'
+        )
+      }
+    );
+    Payment_Event__c record = GatewayTestData.reload(records[0].Id);
+    Assert.areEqual('Retry_Scheduled', record.Status__c);
+    Assert.areEqual(
+      PaymentEventService.REASON_DISPUTE_NOT_FOUND,
+      record.Exception_Reason__c
+    );
+  }
+
+  @IsTest
+  static void disputeClosedIsIdempotentAfterResolution() {
+    List<Payment_Event__c> records = process(
+      new List<String>{
+        GatewayTestData.paymentEvent(
+          'evt_p',
+          'pi_did',
+          GatewayTestData.invoiceNumber(0),
+          4000,
+          'usd'
+        ),
+        GatewayTestData.disputeEvent('evt_d', 'dp_did', 'pi_did', 4000, 'usd'),
+        GatewayTestData.disputeClosedEvent(
+          'evt_dc1',
+          'dp_did',
+          'pi_did',
+          'won',
+          4000,
+          'usd'
+        ),
+        GatewayTestData.disputeClosedEvent(
+          'evt_dc2',
+          'dp_did',
+          'pi_did',
+          'lost',
+          4000,
+          'usd'
+        )
+      }
+    );
+    Payment__c dispute = [
+      SELECT Status__c, Exception_Reason__c
+      FROM Payment__c
+      WHERE Type__c = 'Dispute'
+    ];
+    Assert.areEqual('Applied', dispute.Status__c);
+    Assert.areEqual(
+      PaymentEventService.REASON_DISPUTE_WON,
+      dispute.Exception_Reason__c
+    );
+    Assert.areEqual(
+      'Processed',
+      GatewayTestData.reload(records[3].Id).Status__c
+    );
+  }
+
+  @IsTest
   static void invoicePaidOnOpenInvoiceNeedsReview() {
     List<Payment_Event__c> records = process(
       new List<String>{
