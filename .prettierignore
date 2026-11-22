@@ -4,3 +4,4 @@ coverage/
 .sfdx/
 **/staticresources/**
 package-lock.json
+**/*.svg
