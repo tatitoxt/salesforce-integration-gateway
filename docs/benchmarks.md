@@ -13,12 +13,12 @@ node simulator/bin/benchmark.js --events 2000 --concurrency 10   # --json for ra
 
 **Results (2026-11-21, 2,000-event mixed workload: payments, refunds, disputes, invoice.paid)**
 
-| Metric | Value |
-|---|---:|
-| Signed webhook throughput | **4,089 events/sec** |
-| Per-event latency | 1.43 ms p50 / 5.89 ms p99 |
-| Accepted on first pass | 2,000 / 2,000 (100%) |
-| Idempotent replay | 2,000 / 2,000 deduped (100% dedup rate) |
+| Metric                    |                                   Value |
+| ------------------------- | --------------------------------------: |
+| Signed webhook throughput |                    **4,089 events/sec** |
+| Per-event latency         |               1.43 ms p50 / 5.89 ms p99 |
+| Accepted on first pass    |                    2,000 / 2,000 (100%) |
+| Idempotent replay         | 2,000 / 2,000 deduped (100% dedup rate) |
 
 **Reading the numbers**
 
