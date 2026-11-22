@@ -24,6 +24,7 @@ public inherited sharing class PaymentEventService {
   public static final String REASON_UNKNOWN_DISPUTE_STATUS = 'UNKNOWN_DISPUTE_STATUS';
   public static final String REASON_INVOICE_BALANCE_REMAINING = 'INVOICE_BALANCE_REMAINING';
   public static final String REASON_PAYMENT_FAILED = 'PAYMENT_FAILED';
+  public static final String REASON_REFUND_BELOW_LEDGER = 'REFUND_BELOW_LEDGER';
   public static final String REASON_INVALID_PAYLOAD = 'INVALID_PAYLOAD';
   public static final String REASON_DML_ERROR = 'DML_ERROR';
   public static final String REASON_UNEXPECTED_ERROR = 'UNEXPECTED_ERROR';
@@ -41,6 +42,7 @@ public inherited sharing class PaymentEventService {
     List<Payment_Event__c> disputeClosedEvents = new List<Payment_Event__c>();
     List<Payment_Event__c> invoicePaidEvents = new List<Payment_Event__c>();
     List<Payment_Event__c> paymentFailedEvents = new List<Payment_Event__c>();
+    List<Payment_Event__c> chargeRefundedEvents = new List<Payment_Event__c>();
     for (Payment_Event__c record : events) {
       record.Attempts__c =
         (record.Attempts__c == null ? 0 : record.Attempts__c) + 1;
@@ -64,6 +66,8 @@ public inherited sharing class PaymentEventService {
         invoicePaidEvents.add(record);
       } else if (payload.isPaymentFailed()) {
         paymentFailedEvents.add(record);
+      } else if (payload.isChargeRefunded()) {
+        chargeRefundedEvents.add(record);
       } else {
         markFinal(record, 'Ignored', null);
       }
@@ -77,6 +81,7 @@ public inherited sharing class PaymentEventService {
       applyDisputeClosures(disputeClosedEvents, payloads);
       applyInvoicePaid(invoicePaidEvents, payloads);
       applyPaymentFailures(paymentFailedEvents, payloads);
+      applyChargeRefunds(chargeRefundedEvents, payloads);
     } catch (Exception e) {
       Database.rollback(beforeApply);
       List<Payment_Event__c> affected = new List<Payment_Event__c>(
@@ -87,6 +92,7 @@ public inherited sharing class PaymentEventService {
       affected.addAll(disputeClosedEvents);
       affected.addAll(invoicePaidEvents);
       affected.addAll(paymentFailedEvents);
+      affected.addAll(chargeRefundedEvents);
       for (Payment_Event__c record : affected) {
         scheduleRetry(
           record,
@@ -333,6 +339,134 @@ public inherited sharing class PaymentEventService {
         refund.Status__c = 'Applied';
         refund.Match_Method__c = 'Refund_Link';
         refundedByOriginal.put(original.Id, alreadyRefunded + payload.amount);
+      }
+      refund.Exception_Reason__c = reason;
+      toInsert.add(refund);
+      insertedFor.add(record);
+      reviewReasons.add(reason);
+    }
+    saveAndClassify(toInsert, insertedFor, reviewReasons);
+  }
+
+  /**
+   * charge.refunded is Stripe's canonical refund signal: it carries the
+   * charge's *cumulative* `amount_refunded`, not a per-refund delta. The
+   * gateway reconciles by recording only the delta between that cumulative
+   * total and the refunds already on file — replays and refund.created +
+   * charge.refunded pairs for the same money collapse to zero and are marked
+   * Processed, so retries never double-count.
+   */
+  private void applyChargeRefunds(
+    List<Payment_Event__c> events,
+    Map<Id, PaymentEventPayload> payloads
+  ) {
+    if (events.isEmpty()) {
+      return;
+    }
+    Set<String> originalExternalIds = new Set<String>();
+    for (Payment_Event__c record : events) {
+      PaymentEventPayload payload = payloads.get(record.Id);
+      if (String.isNotBlank(payload.paymentIntentId)) {
+        originalExternalIds.add(payload.paymentIntentId);
+      }
+    }
+    Map<String, Payment__c> originalsByExternalId = new Map<String, Payment__c>();
+    for (
+      Payment__c original : paymentSelector.selectByExternalIds(
+        originalExternalIds
+      )
+    ) {
+      originalsByExternalId.put(original.External_Payment_Id__c, original);
+    }
+    Map<Id, Decimal> refundedByOriginal = new Map<Id, Decimal>();
+    Set<Id> originalIds = new Set<Id>();
+    for (Payment__c original : originalsByExternalId.values()) {
+      originalIds.add(original.Id);
+    }
+    for (
+      AggregateResult row : paymentSelector.sumRefundsByOriginalPayment(
+        originalIds
+      )
+    ) {
+      refundedByOriginal.put(
+        (Id) row.get('originalId'),
+        (Decimal) row.get('total')
+      );
+    }
+
+    List<Payment__c> toInsert = new List<Payment__c>();
+    List<Payment_Event__c> insertedFor = new List<Payment_Event__c>();
+    List<String> reviewReasons = new List<String>();
+    for (Payment_Event__c record : events) {
+      PaymentEventPayload payload = payloads.get(record.Id);
+      if (String.isBlank(payload.paymentIntentId)) {
+        markNeedsReview(record, REASON_MISSING_PAYMENT_REFERENCE);
+        continue;
+      }
+      Payment__c original = originalsByExternalId.get(payload.paymentIntentId);
+      if (original == null) {
+        scheduleRetry(
+          record,
+          REASON_ORIGINAL_NOT_FOUND,
+          'Charge refund ' +
+            payload.objectId +
+            ' references unknown payment ' +
+            payload.paymentIntentId
+        );
+        continue;
+      }
+
+      Decimal alreadyRefunded = refundedByOriginal.containsKey(original.Id)
+        ? refundedByOriginal.get(original.Id)
+        : 0;
+      Decimal delta = payload.amountRefunded - alreadyRefunded;
+      if (delta == 0) {
+        markFinal(
+          record,
+          'Processed',
+          'Charge ' +
+            payload.objectId +
+            ' already reconciled to ' +
+            payload.amountRefunded
+        );
+        continue;
+      }
+      if (delta < 0) {
+        markNeedsReview(record, REASON_REFUND_BELOW_LEDGER);
+        record.Last_Error__c =
+          'Charge ' +
+          payload.objectId +
+          ' reports ' +
+          payload.amountRefunded +
+          ' refunded but the ledger already shows ' +
+          alreadyRefunded;
+        continue;
+      }
+
+      Payment__c refund = newPayment(record, payload, 'Refund');
+      // The delta is keyed by event id so distinct charge.refunded events can
+      // never collide on the charge-scoped synthetic id.
+      refund.External_Payment_Id__c =
+        payload.objectId +
+        ':refunded:' +
+        payload.eventId;
+      refund.Amount__c = delta;
+      refund.Original_Payment__c = original.Id;
+      refund.Invoice__c = original.Invoice__c;
+      String reason;
+      if (original.Status__c != 'Applied') {
+        reason = REASON_ORIGINAL_NOT_APPLIED;
+        refund.Status__c = 'Exception';
+      } else if (payload.currencyCode != original.Currency_Code__c) {
+        reason = REASON_CURRENCY_MISMATCH;
+        refund.Status__c = 'Exception';
+      } else if (payload.amountRefunded > original.Amount__c) {
+        reason = REASON_REFUND_EXCEEDS_PAYMENT;
+        refund.Status__c = 'Exception';
+      } else {
+        refund.Status__c = 'Applied';
+        refund.Match_Method__c = 'Charge_Refunded';
+        refundedByOriginal.put(original.Id, alreadyRefunded + delta);
       }
       refund.Exception_Reason__c = reason;
       toInsert.add(refund);

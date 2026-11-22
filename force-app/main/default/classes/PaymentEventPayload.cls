@@ -9,6 +9,7 @@ public inherited sharing class PaymentEventPayload {
   public static final String TYPE_DISPUTE_CLOSED = 'charge.dispute.closed';
   public static final String TYPE_INVOICE_PAID = 'invoice.paid';
   public static final String TYPE_PAYMENT_FAILED = 'payment_intent.payment_failed';
+  public static final String TYPE_CHARGE_REFUNDED = 'charge.refunded';
 
   private static final Set<String> ZERO_DECIMAL_CURRENCIES = new Set<String>{
     'BIF',
@@ -41,6 +42,8 @@ public inherited sharing class PaymentEventPayload {
   public String disputeStatus;
   public String failureCode;
   public String failureMessage;
+  /** Cumulative refunded total on a charge.refunded event (major units). */
+  public Decimal amountRefunded;
 
   public class PayloadException extends Exception {
   }
@@ -65,6 +68,10 @@ public inherited sharing class PaymentEventPayload {
     return eventType == TYPE_PAYMENT_FAILED;
   }
 
+  public Boolean isChargeRefunded() {
+    return eventType == TYPE_CHARGE_REFUNDED;
+  }
+
   public Boolean isInvoicePaid() {
     return eventType == TYPE_INVOICE_PAID;
   }
@@ -76,7 +83,8 @@ public inherited sharing class PaymentEventPayload {
       isDispute() ||
       isDisputeClosed() ||
       isInvoicePaid() ||
-      isPaymentFailed();
+      isPaymentFailed() ||
+      isChargeRefunded();
   }
 
   public static PaymentEventPayload parse(String body) {
@@ -138,6 +146,16 @@ public inherited sharing class PaymentEventPayload {
       if (lastError != null) {
         payload.failureCode = asString(lastError.get('code'));
         payload.failureMessage = asString(lastError.get('message'));
+      }
+    }
+    if (payload.isChargeRefunded()) {
+      // Charge objects carry the cumulative refunded total, not a per-refund delta.
+      payload.amountRefunded = toMajorUnits(
+        dataObject.get('amount_refunded'),
+        payload.currencyCode
+      );
+      if (payload.amountRefunded == null) {
+        throw new PayloadException('missing_amount_refunded');
       }
     }
     payload.customerReference = asString(dataObject.get('customer'));
