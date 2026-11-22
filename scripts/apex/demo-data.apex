@@ -5,7 +5,9 @@ Map<String, Decimal> totals = new Map<String, Decimal>{
   'INV-DEMO-0002' => 500,
   'INV-DEMO-0003' => 450,
   'INV-DEMO-0004' => 80,
-  'INV-DEMO-0005' => 75
+  'INV-DEMO-0005' => 75,
+  'INV-DEMO-0006' => 640,
+  'INV-DEMO-0007' => 320
 };
 for (String invoiceNumber : totals.keySet()) {
   invoices.add(

@@ -98,4 +98,19 @@ test("simulator CLI end to end against the mock receiver", async (t) => {
   const usage = await cli(["send", "--url", url]);
   assert.equal(usage.code, 2);
   assert.match(usage.stderr, /Missing signing secret/);
+
+  const badBenchmark = await new Promise((resolve) => {
+    execFile(
+      process.execPath,
+      [
+        require("node:path").join(__dirname, "..", "..", "bin", "benchmark.js"),
+        "--events",
+        "0"
+      ],
+      (error, stdout, stderr) =>
+        resolve({ code: error ? error.code : 0, stderr })
+    );
+  });
+  assert.equal(badBenchmark.code, 2);
+  assert.match(badBenchmark.stderr, /positive integers/);
 });
