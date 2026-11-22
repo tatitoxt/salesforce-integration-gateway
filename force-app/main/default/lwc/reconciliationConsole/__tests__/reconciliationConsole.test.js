@@ -432,44 +432,44 @@ describe("c-reconciliation-console", () => {
   });
 });
 
-  it("offers amount-based suggestions and matches the picked invoice", async () => {
-    const element = render();
-    getQueue.emit(QUEUE);
-    await Promise.resolve();
-    getEventDetail.mockResolvedValue(MATCHABLE_DETAIL);
-    suggestInvoices.mockResolvedValue(INVOICES);
-    await inspect(element, MATCHABLE_DETAIL);
+it("offers amount-based suggestions and matches the picked invoice", async () => {
+  const element = render();
+  getQueue.emit(QUEUE);
+  await Promise.resolve();
+  getEventDetail.mockResolvedValue(MATCHABLE_DETAIL);
+  suggestInvoices.mockResolvedValue(INVOICES);
+  await inspect(element, MATCHABLE_DETAIL);
 
-    expect(suggestInvoices).toHaveBeenCalledWith({ eventId: QUEUE[0].Id });
-    const suggestions = $(element, "invoice-suggestions");
-    expect(suggestions).not.toBeNull();
-    expect(suggestions.options).toEqual([
-      { value: INVOICES[0].Id, label: "INV-DEMO-0001 · USD 120 due · Open" }
-    ]);
+  expect(suggestInvoices).toHaveBeenCalledWith({ eventId: QUEUE[0].Id });
+  const suggestions = $(element, "invoice-suggestions");
+  expect(suggestions).not.toBeNull();
+  expect(suggestions.options).toEqual([
+    { value: INVOICES[0].Id, label: "INV-DEMO-0001 · USD 120 due · Open" }
+  ]);
 
-    suggestions.dispatchEvent(
-      new CustomEvent("change", { detail: { value: INVOICES[0].Id } })
-    );
-    await Promise.resolve();
-    expect($(element, "match").disabled).toBe(false);
+  suggestions.dispatchEvent(
+    new CustomEvent("change", { detail: { value: INVOICES[0].Id } })
+  );
+  await Promise.resolve();
+  expect($(element, "match").disabled).toBe(false);
 
-    matchToInvoice.mockResolvedValue();
-    $(element, "match").click();
-    await Promise.resolve();
-    await Promise.resolve();
-    await Promise.resolve();
-    expect(matchToInvoice).toHaveBeenCalledWith({
-      eventId: QUEUE[0].Id,
-      invoiceId: INVOICES[0].Id
-    });
+  matchToInvoice.mockResolvedValue();
+  $(element, "match").click();
+  await Promise.resolve();
+  await Promise.resolve();
+  await Promise.resolve();
+  expect(matchToInvoice).toHaveBeenCalledWith({
+    eventId: QUEUE[0].Id,
+    invoiceId: INVOICES[0].Id
   });
+});
 
-  it("hides the suggestion block when none are offered", async () => {
-    const element = render();
-    getQueue.emit(QUEUE);
-    await Promise.resolve();
-    getEventDetail.mockResolvedValue(MATCHABLE_DETAIL);
-    suggestInvoices.mockResolvedValue([]);
-    await inspect(element, MATCHABLE_DETAIL);
-    expect($(element, "invoice-suggestions")).toBeNull();
-  });
+it("hides the suggestion block when none are offered", async () => {
+  const element = render();
+  getQueue.emit(QUEUE);
+  await Promise.resolve();
+  getEventDetail.mockResolvedValue(MATCHABLE_DETAIL);
+  suggestInvoices.mockResolvedValue([]);
+  await inspect(element, MATCHABLE_DETAIL);
+  expect($(element, "invoice-suggestions")).toBeNull();
+});
