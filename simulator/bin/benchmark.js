@@ -18,6 +18,17 @@ const arg = (name, fallback) => {
 };
 const TOTAL = Number(arg("events", "2000"));
 const CONCURRENCY = Number(arg("concurrency", "10"));
+if (
+  !Number.isInteger(TOTAL) ||
+  TOTAL < 1 ||
+  !Number.isInteger(CONCURRENCY) ||
+  CONCURRENCY < 1
+) {
+  console.error(
+    "Usage: benchmark.js [--events N] [--concurrency N] [--json] (positive integers)"
+  );
+  process.exit(2);
+}
 const JSON_OUT = process.argv.includes("--json");
 const SECRET = "whsec_bench";
 
