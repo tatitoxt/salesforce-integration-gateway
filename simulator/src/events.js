@@ -175,6 +175,35 @@ function invoicePaid({
   });
 }
 
+function paymentFailed({
+  paymentIntentId = randomId("pi_sim_failed"),
+  amount,
+  currency = "usd",
+  invoiceNumber,
+  declineCode = "card_declined",
+  declineMessage = "Your card was declined.",
+  eventId = randomId("evt_sim"),
+  created = Math.floor(Date.now() / 1000)
+}) {
+  const object = {
+    id: paymentIntentId,
+    object: "payment_intent",
+    amount: toMinorUnits(amount, currency),
+    currency: currency.toLowerCase(),
+    customer: "cus_synthetic_demo",
+    last_payment_error: { code: declineCode, message: declineMessage }
+  };
+  if (invoiceNumber) {
+    object.metadata = { invoice_number: invoiceNumber };
+  }
+  return envelope({
+    id: eventId,
+    type: "payment_intent.payment_failed",
+    created,
+    object
+  });
+}
+
 /**
  * Named, synthetic scenarios matching the demo invoices in scripts/demo-data.apex.
  * Each returns an ordered list of events.
@@ -266,6 +295,10 @@ const SCENARIOS = {
   "invoice-paid-upstream": () => [
     invoicePaid({ invoiceNumber: "INV-DEMO-0001", amountPaid: 1200 })
   ],
+  "payment-declined": () => [
+    paymentFailed({ invoiceNumber: "INV-DEMO-0002", amount: 500 })
+  ],
+  "payment-declined-unknown": () => [paymentFailed({ amount: 99 })],
   duplicate: () => {
     const event = paymentSucceeded({
       invoiceNumber: "INV-DEMO-0005",
@@ -296,6 +329,7 @@ module.exports = {
   disputeCreated,
   disputeClosed,
   invoicePaid,
+  paymentFailed,
   toMinorUnits,
   SCENARIOS,
   bulk

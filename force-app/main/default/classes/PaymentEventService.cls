@@ -23,6 +23,7 @@ public inherited sharing class PaymentEventService {
   public static final String REASON_DISPUTE_NOT_FOUND = 'DISPUTE_NOT_FOUND';
   public static final String REASON_UNKNOWN_DISPUTE_STATUS = 'UNKNOWN_DISPUTE_STATUS';
   public static final String REASON_INVOICE_BALANCE_REMAINING = 'INVOICE_BALANCE_REMAINING';
+  public static final String REASON_PAYMENT_FAILED = 'PAYMENT_FAILED';
   public static final String REASON_INVALID_PAYLOAD = 'INVALID_PAYLOAD';
   public static final String REASON_DML_ERROR = 'DML_ERROR';
   public static final String REASON_UNEXPECTED_ERROR = 'UNEXPECTED_ERROR';
@@ -39,6 +40,7 @@ public inherited sharing class PaymentEventService {
     List<Payment_Event__c> disputeEvents = new List<Payment_Event__c>();
     List<Payment_Event__c> disputeClosedEvents = new List<Payment_Event__c>();
     List<Payment_Event__c> invoicePaidEvents = new List<Payment_Event__c>();
+    List<Payment_Event__c> paymentFailedEvents = new List<Payment_Event__c>();
     for (Payment_Event__c record : events) {
       record.Attempts__c =
         (record.Attempts__c == null ? 0 : record.Attempts__c) + 1;
@@ -60,6 +62,8 @@ public inherited sharing class PaymentEventService {
         disputeClosedEvents.add(record);
       } else if (payload.isInvoicePaid()) {
         invoicePaidEvents.add(record);
+      } else if (payload.isPaymentFailed()) {
+        paymentFailedEvents.add(record);
       } else {
         markFinal(record, 'Ignored', null);
       }
@@ -72,6 +76,7 @@ public inherited sharing class PaymentEventService {
       applyDisputes(disputeEvents, payloads);
       applyDisputeClosures(disputeClosedEvents, payloads);
       applyInvoicePaid(invoicePaidEvents, payloads);
+      applyPaymentFailures(paymentFailedEvents, payloads);
     } catch (Exception e) {
       Database.rollback(beforeApply);
       List<Payment_Event__c> affected = new List<Payment_Event__c>(
@@ -81,6 +86,7 @@ public inherited sharing class PaymentEventService {
       affected.addAll(disputeEvents);
       affected.addAll(disputeClosedEvents);
       affected.addAll(invoicePaidEvents);
+      affected.addAll(paymentFailedEvents);
       for (Payment_Event__c record : affected) {
         scheduleRetry(
           record,
@@ -417,6 +423,33 @@ public inherited sharing class PaymentEventService {
    * Payment__c. It is Processed when the local invoice shows no remaining
    * balance, otherwise Needs_Review flags the drift for the ops queue.
    */
+  /**
+   * `payment_intent.payment_failed` moves no money, so it creates no
+   * Payment__c — it is an ops signal. Every failure lands in Needs_Review
+   * with the decline code/message and the invoice reference (if any) so the
+   * desk can chase the customer for a new payment method.
+   */
+  private void applyPaymentFailures(
+    List<Payment_Event__c> events,
+    Map<Id, PaymentEventPayload> payloads
+  ) {
+    for (Payment_Event__c record : events) {
+      PaymentEventPayload payload = payloads.get(record.Id);
+      String detail = 'Payment ' + payload.objectId + ' failed';
+      if (String.isNotBlank(payload.failureCode)) {
+        detail += ' — ' + payload.failureCode;
+      }
+      if (String.isNotBlank(payload.failureMessage)) {
+        detail += ' (' + payload.failureMessage + ')';
+      }
+      if (String.isNotBlank(payload.invoiceNumber)) {
+        detail += '; invoice ' + payload.invoiceNumber;
+      }
+      record.Last_Error__c = detail;
+      markNeedsReview(record, REASON_PAYMENT_FAILED);
+    }
+  }
+
   private void applyInvoicePaid(
     List<Payment_Event__c> events,
     Map<Id, PaymentEventPayload> payloads

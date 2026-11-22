@@ -78,6 +78,30 @@ private class PaymentEventPayloadTest {
   }
 
   @IsTest
+  static void parsesPaymentFailedEvents() {
+    PaymentEventPayload payload = PaymentEventPayload.parse(
+      GatewayTestData.paymentFailedEvent(
+        'evt_f',
+        'pi_9',
+        4900,
+        'usd',
+        'INV-0009',
+        'card_declined',
+        'Your card was declined.'
+      )
+    );
+    Assert.isTrue(payload.isPaymentFailed());
+    Assert.isTrue(payload.isActionable());
+    Assert.areEqual('pi_9', payload.objectId);
+    // The intent's own id is used for downstream lookups.
+    Assert.areEqual('pi_9', payload.paymentIntentId);
+    Assert.areEqual(49.00, payload.amount);
+    Assert.areEqual('INV-0009', payload.invoiceNumber);
+    Assert.areEqual('card_declined', payload.failureCode);
+    Assert.areEqual('Your card was declined.', payload.failureMessage);
+  }
+
+  @IsTest
   static void parsesInvoicePaidEvents() {
     PaymentEventPayload payload = PaymentEventPayload.parse(
       GatewayTestData.invoicePaidEvent('evt_i', 'in_1', 'INV-0042', 9900, 'USD')

@@ -140,6 +140,37 @@ public class GatewayTestData {
     );
   }
 
+  public static String paymentFailedEvent(
+    String eventId,
+    String paymentIntentId,
+    Long amountMinor,
+    String currencyCode,
+    String invoiceNumber,
+    String failureCode,
+    String failureMessage
+  ) {
+    Map<String, Object> metadata = new Map<String, Object>();
+    if (String.isNotBlank(invoiceNumber)) {
+      metadata.put('invoice_number', invoiceNumber);
+    }
+    return envelope(
+      eventId,
+      PaymentEventPayload.TYPE_PAYMENT_FAILED,
+      new Map<String, Object>{
+        'id' => paymentIntentId,
+        'object' => 'payment_intent',
+        'amount' => amountMinor,
+        'currency' => currencyCode,
+        'customer' => 'cus_synthetic',
+        'metadata' => metadata,
+        'last_payment_error' => new Map<String, Object>{
+          'code' => failureCode,
+          'message' => failureMessage
+        }
+      }
+    );
+  }
+
   public static String invoicePaidEvent(
     String eventId,
     String invoiceId,

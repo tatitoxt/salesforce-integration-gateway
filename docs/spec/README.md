@@ -53,9 +53,10 @@ processor (Stripe-style webhooks) needs three things to stay consistent:
 | Given the billing API returns 503, then the invoice is `Retry_Scheduled`; 200 → `Synced`; 400 → `Failed`.                         | `BillingSyncServiceTest`                                                                  |
 | Given an event in `Needs_Review`, when the operator matches it to an invoice, then the payment is `Applied` and the event closes. | `ReconciliationControllerTest.manualMatchAppliesPayment`, `reconciliationConsole.test.js` |
 | Given the simulator CLI, when it sends a scenario to an HTTP endpoint, then each request carries a verifiable signature.          | `simulator/test/e2e/cli.e2e.test.js`                                                      |
+| Given a `payment_intent.payment_failed` event, then no payment is recorded and the event lands in `Needs_Review` with the decline code/message and invoice reference. | `PaymentEventServiceTest.failedPaymentIsQueuedForReviewWithDeclineDetail`, `failedPaymentWithoutInvoiceStillReviews` |
 
 ## Out of scope
 
 - Real processor or billing-platform accounts, multi-currency conversion, tax.
-- Disputes/chargebacks, payouts, subscriptions.
+- Dispute evidence submission, payouts, subscriptions.
 - A public Salesforce Site / guest-user exposure of the endpoint (see ADR 0002).

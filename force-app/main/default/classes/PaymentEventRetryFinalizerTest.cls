@@ -29,9 +29,7 @@ private class PaymentEventRetryFinalizerTest {
   @IsTest
   static void successDoesNotRequeue() {
     new PaymentEventRetryFinalizer(0)
-      .execute(
-        new MockFinalizerContext(System.ParentJobResult.SUCCESS, null)
-      );
+      .execute(new MockFinalizerContext(System.ParentJobResult.SUCCESS, null));
     Assert.isFalse(
       AsyncJobs.wasRequested('PaymentEventProcessor'),
       'a clean run leaves chaining to execute()'
@@ -43,9 +41,7 @@ private class PaymentEventRetryFinalizerTest {
     Boolean enqueued = new PaymentEventRetryFinalizer(0)
       .handleCrash(new NullPointerException());
     Assert.isTrue(enqueued, 'crash depth 0 requeues the processor');
-    Assert.isTrue(
-      AsyncJobs.wasRequested('PaymentEventProcessor')
-    );
+    Assert.isTrue(AsyncJobs.wasRequested('PaymentEventProcessor'));
   }
 
   @IsTest

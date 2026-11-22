@@ -8,6 +8,7 @@ public inherited sharing class PaymentEventPayload {
   public static final String TYPE_DISPUTE_CREATED = 'charge.dispute.created';
   public static final String TYPE_DISPUTE_CLOSED = 'charge.dispute.closed';
   public static final String TYPE_INVOICE_PAID = 'invoice.paid';
+  public static final String TYPE_PAYMENT_FAILED = 'payment_intent.payment_failed';
 
   private static final Set<String> ZERO_DECIMAL_CURRENCIES = new Set<String>{
     'BIF',
@@ -38,6 +39,8 @@ public inherited sharing class PaymentEventPayload {
   public String customerReference;
   public String paymentIntentId;
   public String disputeStatus;
+  public String failureCode;
+  public String failureMessage;
 
   public class PayloadException extends Exception {
   }
@@ -58,6 +61,10 @@ public inherited sharing class PaymentEventPayload {
     return eventType == TYPE_DISPUTE_CLOSED;
   }
 
+  public Boolean isPaymentFailed() {
+    return eventType == TYPE_PAYMENT_FAILED;
+  }
+
   public Boolean isInvoicePaid() {
     return eventType == TYPE_INVOICE_PAID;
   }
@@ -68,7 +75,8 @@ public inherited sharing class PaymentEventPayload {
       isRefund() ||
       isDispute() ||
       isDisputeClosed() ||
-      isInvoicePaid();
+      isInvoicePaid() ||
+      isPaymentFailed();
   }
 
   public static PaymentEventPayload parse(String body) {
@@ -119,6 +127,18 @@ public inherited sharing class PaymentEventPayload {
     if (payload.isDisputeClosed()) {
       // Closed disputes carry the outcome on `status`: won | lost.
       payload.disputeStatus = asString(dataObject.get('status'));
+    }
+    if (payload.isPaymentFailed()) {
+      // The failed object IS the payment intent, and Stripe describes the
+      // decline under `last_payment_error`.
+      payload.paymentIntentId = payload.objectId;
+      Map<String, Object> lastError = asMap(
+        dataObject.get('last_payment_error')
+      );
+      if (lastError != null) {
+        payload.failureCode = asString(lastError.get('code'));
+        payload.failureMessage = asString(lastError.get('message'));
+      }
     }
     payload.customerReference = asString(dataObject.get('customer'));
     Map<String, Object> metadata = asMap(dataObject.get('metadata'));
