@@ -29,9 +29,29 @@ public inherited sharing class PaymentSelector {
     return [
       SELECT Invoice__c invoiceId, Type__c paymentType, SUM(Amount__c) total
       FROM Payment__c
-      WHERE Invoice__c IN :invoiceIds AND Status__c = 'Applied'
+      WHERE
+        Invoice__c IN :invoiceIds
+        AND Status__c = 'Applied'
+        AND Type__c IN ('Payment', 'Refund')
       GROUP BY Invoice__c, Type__c
     ];
+  }
+
+  /** Originals whose refunds were already reconciled by charge.refunded deltas. */
+  public Set<Id> selectChargeLedgeredOriginalIds(Set<Id> originalPaymentIds) {
+    Set<Id> ids = new Set<Id>();
+    for (Payment__c refund : [
+      SELECT Original_Payment__c
+      FROM Payment__c
+      WHERE
+        Original_Payment__c IN :originalPaymentIds
+        AND Type__c = 'Refund'
+        AND Status__c = 'Applied'
+        AND External_Payment_Id__c LIKE '%:refunded:%'
+    ]) {
+      ids.add(refund.Original_Payment__c);
+    }
+    return ids;
   }
 
   public List<AggregateResult> sumRefundsByOriginalPayment(
