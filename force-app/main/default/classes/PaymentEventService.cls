@@ -194,10 +194,23 @@ public inherited sharing class PaymentEventService {
             payload.currencyCode.toUpperCase() + '|' + payload.amount
           )
         : null;
-      Invoice__c exactAmountInvoice = amountCandidates != null &&
-        amountCandidates.size() == 1
-        ? amountCandidates[0]
-        : null;
+      Invoice__c exactAmountInvoice = null;
+      if (amountCandidates != null) {
+        // Only an invoice whose *remaining* balance still equals the amount
+        // is a candidate; claims made earlier in this batch already count.
+        List<Invoice__c> open = new List<Invoice__c>();
+        for (Invoice__c candidate : amountCandidates) {
+          Decimal remaining = remainingByInvoice.containsKey(candidate.Id)
+            ? remainingByInvoice.get(candidate.Id)
+            : candidate.Balance_Due__c;
+          if (remaining == payload.amount) {
+            open.add(candidate);
+          }
+        }
+        if (open.size() == 1) {
+          exactAmountInvoice = open[0];
+        }
+      }
       if (invoice == null && exactAmountInvoice != null) {
         invoice = exactAmountInvoice;
       }
@@ -286,6 +299,12 @@ public inherited sharing class PaymentEventService {
         (Decimal) row.get('total')
       );
     }
+    // charge.refunded is the canonical ledger: once it reconciled a charge's
+    // cumulative amount_refunded, refund.created events for the same money
+    // are already covered and must not record a second refund.
+    Set<Id> ledgeredOriginals = paymentSelector.selectChargeLedgeredOriginalIds(
+      originalIds
+    );
 
     List<Payment__c> toInsert = new List<Payment__c>();
     List<Payment_Event__c> insertedFor = new List<Payment_Event__c>();
@@ -314,6 +333,16 @@ public inherited sharing class PaymentEventService {
             payload.objectId +
             ' references unknown payment ' +
             payload.paymentIntentId
+        );
+        continue;
+      }
+      if (ledgeredOriginals.contains(original.Id)) {
+        markFinal(
+          record,
+          'Processed',
+          'Refund ' +
+            payload.objectId +
+            ' already covered by the charge.refunded ledger'
         );
         continue;
       }
@@ -618,6 +647,10 @@ public inherited sharing class PaymentEventService {
       );
       if (invoice == null) {
         markNeedsReview(record, REASON_INVOICE_NOT_FOUND);
+      } else if (
+        !currencyMatches(invoice.Currency_Code__c, payload.currencyCode)
+      ) {
+        markNeedsReview(record, REASON_CURRENCY_MISMATCH);
       } else if (invoice.Balance_Due__c != null && invoice.Balance_Due__c > 0) {
         markNeedsReview(record, REASON_INVOICE_BALANCE_REMAINING);
       } else {
@@ -651,6 +684,7 @@ public inherited sharing class PaymentEventService {
     List<Payment__c> toUpdate = new List<Payment__c>();
     List<Payment_Event__c> updatedFor = new List<Payment_Event__c>();
     List<String> reviewReasons = new List<String>();
+    Set<Id> queuedForUpdate = new Set<Id>();
     for (Payment_Event__c record : events) {
       PaymentEventPayload payload = payloads.get(record.Id);
       Payment__c dispute = disputesByExternalId.get(payload.objectId);
@@ -673,15 +707,23 @@ public inherited sharing class PaymentEventService {
       String outcome = payload.disputeStatus == null
         ? ''
         : payload.disputeStatus.toLowerCase();
-      if (outcome == 'won') {
+      if (queuedForUpdate.contains(dispute.Id)) {
+        markFinal(
+          record,
+          'Processed',
+          'Dispute ' + payload.objectId + ' already resolved in this batch'
+        );
+      } else if (outcome == 'won') {
         dispute.Status__c = 'Applied';
         dispute.Exception_Reason__c = REASON_DISPUTE_WON;
         toUpdate.add(dispute);
+        queuedForUpdate.add(dispute.Id);
         updatedFor.add(record);
         reviewReasons.add(null);
       } else if (outcome == 'lost') {
         dispute.Exception_Reason__c = REASON_DISPUTE_LOST;
         toUpdate.add(dispute);
+        queuedForUpdate.add(dispute.Id);
         updatedFor.add(record);
         reviewReasons.add(REASON_DISPUTE_LOST);
       } else {
