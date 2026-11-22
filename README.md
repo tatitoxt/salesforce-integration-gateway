@@ -6,6 +6,10 @@ An SFDX project (Apex + Lightning Web Components) that receives signed payment w
 
 > **Apex execution status:** the Apex code and its 75 test methods have **not** been executed against a Salesforce org in this repository's history. No Dev Hub / SFDX auth URL was available while building it. CI runs the `apex-org` job (deploy + `RunLocalTests` with coverage) **only when an `SFDX_AUTH_URL` repository secret is configured**; otherwise it is skipped with a notice. What _is_ verified on every push: LWC Jest tests, simulator unit/integration/E2E tests, ESLint, Prettier (including Apex syntax via `prettier-plugin-apex`), Salesforce Code Analyzer (PMD) and `npm audit`.
 
+<p align="center">
+  <img src="docs/demo.svg" width="880" alt="signed webhook simulator: accepted events and 401 on tampered signature">
+</p>
+
 ## Problem
 
 Payment processors deliver events (payment succeeded, refund created) as signed HTTP webhooks. A CRM that consumes them has to:
