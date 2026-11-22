@@ -33,12 +33,24 @@ async function main() {
 
   // A mixed workload: payments, refunds, disputes and invoice.paid events.
   const builders = [
-    (i) => events.paymentSucceeded({ invoiceNumber: `INV-BENCH-${i % 50}`, amount: 100 + (i % 900) }),
-    (i) => events.refundCreated({ paymentId: `pi_${i}`, amount: 50 + (i % 400) }),
-    (i) => events.disputeCreated({ paymentId: `pi_${i}`, amount: 200 + (i % 500) }),
-    (i) => events.invoicePaid({ invoiceNumber: `INV-BENCH-${i % 50}`, amountPaid: 100 + (i % 900) }),
+    (i) =>
+      events.paymentSucceeded({
+        invoiceNumber: `INV-BENCH-${i % 50}`,
+        amount: 100 + (i % 900)
+      }),
+    (i) =>
+      events.refundCreated({ paymentId: `pi_${i}`, amount: 50 + (i % 400) }),
+    (i) =>
+      events.disputeCreated({ paymentId: `pi_${i}`, amount: 200 + (i % 500) }),
+    (i) =>
+      events.invoicePaid({
+        invoiceNumber: `INV-BENCH-${i % 50}`,
+        amountPaid: 100 + (i % 900)
+      })
   ];
-  const batch = Array.from({ length: TOTAL }, (_, i) => builders[i % builders.length](i));
+  const batch = Array.from({ length: TOTAL }, (_, i) =>
+    builders[i % builders.length](i)
+  );
 
   const latencies = [];
   let accepted = 0;
@@ -61,11 +73,13 @@ async function main() {
   let duplicates = 0;
   for (let off = 0; off < batch.length; off += CONCURRENCY) {
     const results = await Promise.all(
-      batch.slice(off, off + CONCURRENCY).map((event) =>
-        sendEvent({ url, secret: SECRET, event })
-      )
+      batch
+        .slice(off, off + CONCURRENCY)
+        .map((event) => sendEvent({ url, secret: SECRET, event }))
     );
-    duplicates += results.filter((r) => r.status === 200 && r.body.status === "duplicate").length;
+    duplicates += results.filter(
+      (r) => r.status === 200 && r.body.status === "duplicate"
+    ).length;
   }
   const replayMs = performance.now() - replay0;
 
@@ -77,18 +91,26 @@ async function main() {
     events_per_sec: Math.round((TOTAL / elapsed) * 1000),
     latency_ms: {
       p50: +percentile(latencies, 0.5).toFixed(2),
-      p99: +percentile(latencies, 0.99).toFixed(2),
+      p99: +percentile(latencies, 0.99).toFixed(2)
     },
-    replay: { duplicates, ms: Math.round(replayMs), dedup_rate: +(duplicates / TOTAL).toFixed(3) },
-    recorded: handle ? undefined : undefined,
+    replay: {
+      duplicates,
+      ms: Math.round(replayMs),
+      dedup_rate: +(duplicates / TOTAL).toFixed(3)
+    },
+    recorded: handle ? undefined : undefined
   };
   if (JSON_OUT) {
     console.log(JSON.stringify(out, null, 2));
   } else {
-    console.log(`webhook pipeline: ${out.events_per_sec} events/sec ` +
-      `(p50 ${out.latency_ms.p50} ms, p99 ${out.latency_ms.p99} ms), ` +
-      `${accepted}/${TOTAL} accepted`);
-    console.log(`idempotent replay: ${duplicates}/${TOTAL} deduped in ${Math.round(replayMs)} ms`);
+    console.log(
+      `webhook pipeline: ${out.events_per_sec} events/sec ` +
+        `(p50 ${out.latency_ms.p50} ms, p99 ${out.latency_ms.p99} ms), ` +
+        `${accepted}/${TOTAL} accepted`
+    );
+    console.log(
+      `idempotent replay: ${duplicates}/${TOTAL} deduped in ${Math.round(replayMs)} ms`
+    );
   }
 }
 

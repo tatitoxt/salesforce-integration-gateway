@@ -97,6 +97,32 @@ public class GatewayTestData {
     );
   }
 
+  /**
+   * A charge.refunded event: `amount` is the charge total, `refundedMinor`
+   * is the charge's cumulative amount_refunded.
+   */
+  public static String chargeRefundedEvent(
+    String eventId,
+    String chargeId,
+    String paymentId,
+    Long amountMinor,
+    Long refundedMinor,
+    String currencyCode
+  ) {
+    return envelope(
+      eventId,
+      PaymentEventPayload.TYPE_CHARGE_REFUNDED,
+      new Map<String, Object>{
+        'id' => chargeId,
+        'object' => 'charge',
+        'amount' => amountMinor,
+        'amount_refunded' => refundedMinor,
+        'currency' => currencyCode,
+        'payment_intent' => paymentId
+      }
+    );
+  }
+
   public static String disputeEvent(
     String eventId,
     String disputeId,

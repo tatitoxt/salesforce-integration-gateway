@@ -106,6 +106,8 @@ test("invoice.paid events carry number and amount_paid", () => {
 
 test("scenarios produce the documented event shapes", () => {
   assert.deepEqual(Object.keys(SCENARIOS).sort(), [
+    "charge-refunded",
+    "charge-refunded-after-refund",
     "currency-mismatch",
     "dispute",
     "dispute-before-payment",
@@ -125,6 +127,15 @@ test("scenarios produce the documented event shapes", () => {
   assert.equal(disputed.data.object.payment_intent, paid.data.object.id);
   const [payment, refund] = SCENARIOS.refund();
   assert.equal(refund.data.object.payment_intent, payment.data.object.id);
+  const [paid2, chargeRefunded] = SCENARIOS["charge-refunded"]();
+  assert.equal(chargeRefunded.data.object.payment_intent, paid2.data.object.id);
+  assert.equal(chargeRefunded.type, "charge.refunded");
+  assert.equal(chargeRefunded.data.object.amount_refunded, 30000);
+  const [paid3, partial, cumulative] =
+    SCENARIOS["charge-refunded-after-refund"]();
+  assert.equal(partial.data.object.payment_intent, paid3.data.object.id);
+  assert.equal(partial.data.object.amount, 10000);
+  assert.equal(cumulative.data.object.amount_refunded, 30000);
   const [first, second] = SCENARIOS.duplicate();
   assert.equal(first.id, second.id);
   assert.equal(SCENARIOS["partial-payments"]().length, 2);
@@ -155,4 +166,3 @@ test("paymentFailed builds a declined intent with failure details", () => {
   const noInvoice = paymentFailed({ amount: 10 });
   assert.equal(noInvoice.data.object.metadata, undefined);
 });
-

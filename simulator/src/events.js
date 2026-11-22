@@ -97,6 +97,36 @@ function refundCreated({
   });
 }
 
+function chargeRefunded({
+  paymentId,
+  amount,
+  amountRefunded,
+  currency = "usd",
+  chargeId = randomId("ch_sim"),
+  eventId = randomId("evt_sim"),
+  created = Math.floor(Date.now() / 1000)
+}) {
+  if (!paymentId) {
+    throw new Error("chargeRefunded requires paymentId");
+  }
+  if (amountRefunded === undefined) {
+    throw new Error("chargeRefunded requires amountRefunded (cumulative)");
+  }
+  return envelope({
+    id: eventId,
+    type: "charge.refunded",
+    created,
+    object: {
+      id: chargeId,
+      object: "charge",
+      amount: toMinorUnits(amount ?? 0, currency),
+      amount_refunded: toMinorUnits(amountRefunded, currency),
+      currency: currency.toLowerCase(),
+      payment_intent: paymentId
+    }
+  });
+}
+
 function disputeCreated({
   paymentId,
   amount,
@@ -226,6 +256,36 @@ const SCENARIOS = {
       refundCreated({ paymentId: payment.data.object.id, amount: 50 })
     ];
   },
+  "charge-refunded": () => {
+    const payment = paymentSucceeded({
+      invoiceNumber: "INV-DEMO-0001",
+      amount: 1200
+    });
+    return [
+      payment,
+      chargeRefunded({
+        paymentId: payment.data.object.id,
+        amount: 1200,
+        amountRefunded: 300
+      })
+    ];
+  },
+  "charge-refunded-after-refund": () => {
+    const payment = paymentSucceeded({
+      invoiceNumber: "INV-DEMO-0002",
+      amount: 500
+    });
+    return [
+      payment,
+      refundCreated({ paymentId: payment.data.object.id, amount: 100 }),
+      // Cumulative 300 on the charge; the gateway records only the 200 delta.
+      chargeRefunded({
+        paymentId: payment.data.object.id,
+        amount: 500,
+        amountRefunded: 300
+      })
+    ];
+  },
   "unknown-invoice": () => [
     paymentSucceeded({ invoiceNumber: "INV-DOES-NOT-EXIST", amount: 99 })
   ],
@@ -326,6 +386,7 @@ function bulk({
 module.exports = {
   paymentSucceeded,
   refundCreated,
+  chargeRefunded,
   disputeCreated,
   disputeClosed,
   invoicePaid,

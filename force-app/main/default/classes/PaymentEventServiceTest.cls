@@ -819,4 +819,202 @@ private class PaymentEventServiceTest {
     );
     Assert.isTrue(record.Last_Error__c.contains('insufficient_funds'));
   }
+
+  @IsTest
+  static void chargeRefundedAppliesTheDelta() {
+    process(
+      new List<String>{
+        GatewayTestData.paymentEvent(
+          'evt_pay',
+          'pi_cr',
+          GatewayTestData.invoiceNumber(0),
+          10000,
+          'usd'
+        )
+      }
+    );
+    List<Payment_Event__c> records = process(
+      new List<String>{
+        GatewayTestData.chargeRefundedEvent(
+          'evt_cr',
+          'ch_cr',
+          'pi_cr',
+          10000,
+          2500,
+          'usd'
+        )
+      }
+    );
+    Assert.areEqual(
+      'Processed',
+      GatewayTestData.reload(records[0].Id).Status__c
+    );
+    Payment__c refund = [
+      SELECT Status__c, Match_Method__c, Amount__c
+      FROM Payment__c
+      WHERE Type__c = 'Refund'
+    ];
+    Assert.areEqual('Applied', refund.Status__c);
+    Assert.areEqual('Charge_Refunded', refund.Match_Method__c);
+    Assert.areEqual(25, refund.Amount__c);
+    Invoice__c updated = invoice(0);
+    Assert.areEqual(75, updated.Amount_Paid__c);
+    Assert.areEqual(25, updated.Amount_Refunded__c);
+  }
+
+  @IsTest
+  static void chargeRefundedReplayIsIdempotent() {
+    String invoiceNumber = GatewayTestData.invoiceNumber(1);
+    process(
+      new List<String>{
+        GatewayTestData.paymentEvent(
+          'evt_pay',
+          'pi_rp',
+          invoiceNumber,
+          10000,
+          'usd'
+        )
+      }
+    );
+    process(
+      new List<String>{
+        GatewayTestData.chargeRefundedEvent(
+          'evt_cr1',
+          'ch_rp',
+          'pi_rp',
+          10000,
+          4000,
+          'usd'
+        )
+      }
+    );
+    List<Payment_Event__c> replay = process(
+      new List<String>{
+        GatewayTestData.chargeRefundedEvent(
+          'evt_cr2',
+          'ch_rp',
+          'pi_rp',
+          10000,
+          4000,
+          'usd'
+        )
+      }
+    );
+    Assert.areEqual(
+      'Processed',
+      GatewayTestData.reload(replay[0].Id).Status__c
+    );
+    Assert.areEqual(
+      1,
+      [SELECT COUNT() FROM Payment__c WHERE Type__c = 'Refund'],
+      'a replayed cumulative total must not record a second refund'
+    );
+    Assert.areEqual(40, invoice(1).Amount_Refunded__c);
+  }
+
+  @IsTest
+  static void chargeRefundedAfterPartialRefundRecordsOnlyTheDelta() {
+    String invoiceNumber = GatewayTestData.invoiceNumber(2);
+    process(
+      new List<String>{
+        GatewayTestData.paymentEvent(
+          'evt_pay',
+          'pi_dd',
+          invoiceNumber,
+          10000,
+          'usd'
+        )
+      }
+    );
+    process(
+      new List<String>{
+        GatewayTestData.refundEvent('evt_ref', 're_1', 'pi_dd', 2000, 'usd')
+      }
+    );
+    process(
+      new List<String>{
+        GatewayTestData.chargeRefundedEvent(
+          'evt_cr',
+          'ch_dd',
+          'pi_dd',
+          10000,
+          5000,
+          'usd'
+        )
+      }
+    );
+    List<Payment__c> refunds = [
+      SELECT Amount__c
+      FROM Payment__c
+      WHERE Type__c = 'Refund'
+      ORDER BY Amount__c
+    ];
+    Assert.areEqual(2, refunds.size());
+    Assert.areEqual(20, refunds[0].Amount__c);
+    Assert.areEqual(
+      30,
+      refunds[1].Amount__c,
+      'only the delta over the refunded total is recorded'
+    );
+    Assert.areEqual(50, invoice(2).Amount_Refunded__c);
+  }
+
+  @IsTest
+  static void chargeRefundedBelowLedgerNeedsReview() {
+    process(
+      new List<String>{
+        GatewayTestData.paymentEvent(
+          'evt_pay',
+          'pi_bl',
+          GatewayTestData.invoiceNumber(0),
+          10000,
+          'usd'
+        )
+      }
+    );
+    process(
+      new List<String>{
+        GatewayTestData.refundEvent('evt_ref', 're_bl', 'pi_bl', 5000, 'usd')
+      }
+    );
+    List<Payment_Event__c> records = process(
+      new List<String>{
+        GatewayTestData.chargeRefundedEvent(
+          'evt_cr',
+          'ch_bl',
+          'pi_bl',
+          10000,
+          2500,
+          'usd'
+        )
+      }
+    );
+    Payment_Event__c record = GatewayTestData.reload(records[0].Id);
+    Assert.areEqual('Needs_Review', record.Status__c);
+    Assert.areEqual(
+      PaymentEventService.REASON_REFUND_BELOW_LEDGER,
+      record.Exception_Reason__c
+    );
+    Assert.areEqual(50, invoice(0).Amount_Refunded__c, 'ledger untouched');
+  }
+
+  @IsTest
+  static void chargeRefundedBeforePaymentIsRetried() {
+    List<Payment_Event__c> records = process(
+      new List<String>{
+        GatewayTestData.chargeRefundedEvent(
+          'evt_cr',
+          'ch_late',
+          'pi_late',
+          10000,
+          3000,
+          'usd'
+        )
+      }
+    );
+    Assert.areEqual(
+      'Retry_Scheduled',
+      GatewayTestData.reload(records[0].Id).Status__c
+    );
+  }
 }

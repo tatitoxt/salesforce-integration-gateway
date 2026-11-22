@@ -28,6 +28,25 @@ private class PaymentEventPayloadTest {
   }
 
   @IsTest
+  static void parsesChargeRefundedEvent() {
+    PaymentEventPayload payload = PaymentEventPayload.parse(
+      GatewayTestData.chargeRefundedEvent(
+        'evt_4',
+        'ch_1',
+        'pi_1',
+        10000,
+        2500,
+        'usd'
+      )
+    );
+    Assert.isTrue(payload.isChargeRefunded());
+    Assert.isTrue(payload.isActionable());
+    Assert.areEqual('pi_1', payload.paymentIntentId);
+    Assert.areEqual(100.00, payload.amount);
+    Assert.areEqual(25.00, payload.amountRefunded);
+  }
+
+  @IsTest
   static void keepsZeroDecimalCurrenciesInMajorUnits() {
     Assert.areEqual(1500, PaymentEventPayload.toMajorUnits(1500, 'JPY'));
     Assert.areEqual(15.00, PaymentEventPayload.toMajorUnits(1500, 'USD'));
@@ -125,7 +144,8 @@ private class PaymentEventPayloadTest {
       '{"id":"evt","type":"payment_intent.succeeded","data":{"object":{"id":"pi","amount":"10"}}}' => 'invalid_amount',
       '{"id":"evt","type":"refund.created","data":{"object":{"amount":10}}}' => 'missing_object_id',
       '{"id":"evt","type":"payment_intent.succeeded","data":{}}' => 'missing_data_object',
-      '{"id":"evt","type":"refund.created"}' => 'missing_data_object'
+      '{"id":"evt","type":"refund.created"}' => 'missing_data_object',
+      '{"id":"evt","type":"charge.refunded","data":{"object":{"id":"ch","amount":10}}}' => 'missing_amount_refunded'
     };
     for (String body : cases.keySet()) {
       try {
