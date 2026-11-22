@@ -19,6 +19,11 @@
         <label>Refund Link</label>
       </value>
       <value>
+        <fullName>Charge_Refunded</fullName>
+        <default>false</default>
+        <label>Charge Refunded</label>
+      </value>
+      <value>
         <fullName>Exact_Amount</fullName>
         <default>false</default>
         <label>Exact Amount</label>
