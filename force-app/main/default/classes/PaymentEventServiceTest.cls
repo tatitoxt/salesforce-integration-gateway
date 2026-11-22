@@ -761,4 +761,62 @@ private class PaymentEventServiceTest {
       ]
     );
   }
+
+  @IsTest
+  static void failedPaymentIsQueuedForReviewWithDeclineDetail() {
+    List<Payment_Event__c> records = process(
+      new List<String>{
+        GatewayTestData.paymentFailedEvent(
+          'evt_f',
+          'pi_fail',
+          15000,
+          'usd',
+          GatewayTestData.invoiceNumber(0),
+          'card_declined',
+          'Your card was declined.'
+        )
+      }
+    );
+    Payment_Event__c record = GatewayTestData.reload(records[0].Id);
+    Assert.areEqual('Needs_Review', record.Status__c);
+    Assert.areEqual(
+      PaymentEventService.REASON_PAYMENT_FAILED,
+      record.Exception_Reason__c
+    );
+    Assert.isTrue(
+      record.Last_Error__c.contains('card_declined'),
+      'expected decline code in the review detail: ' + record.Last_Error__c
+    );
+    Assert.isTrue(
+      record.Last_Error__c.contains('pi_fail'),
+      'expected intent id in the review detail: ' + record.Last_Error__c
+    );
+    // No money moved: nothing was recorded against the invoice.
+    Assert.areEqual(0, [SELECT COUNT() FROM Payment__c]);
+    Assert.areEqual('Open', invoice(0).Status__c);
+  }
+
+  @IsTest
+  static void failedPaymentWithoutInvoiceStillReviews() {
+    List<Payment_Event__c> records = process(
+      new List<String>{
+        GatewayTestData.paymentFailedEvent(
+          'evt_f2',
+          'pi_orphan',
+          500,
+          'usd',
+          null,
+          'insufficient_funds',
+          null
+        )
+      }
+    );
+    Payment_Event__c record = GatewayTestData.reload(records[0].Id);
+    Assert.areEqual('Needs_Review', record.Status__c);
+    Assert.areEqual(
+      PaymentEventService.REASON_PAYMENT_FAILED,
+      record.Exception_Reason__c
+    );
+    Assert.isTrue(record.Last_Error__c.contains('insufficient_funds'));
+  }
 }

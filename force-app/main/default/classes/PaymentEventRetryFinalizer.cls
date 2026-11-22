@@ -32,14 +32,13 @@ public without sharing class PaymentEventRetryFinalizer implements System.Finali
       'PaymentEventProcessor crashed (depth ' +
         crashDepth +
         '): ' +
-        (cause == null ? 'unknown' : cause.getTypeName() + ': ' + cause.getMessage())
+        (cause == null
+          ? 'unknown'
+          : cause.getTypeName() + ': ' + cause.getMessage())
     );
     if (crashDepth >= PaymentEventProcessor.MAX_CRASH_RETRIES) {
       return false;
     }
-    return AsyncJobs.enqueue(
-      new PaymentEventProcessor(crashDepth + 1),
-      0
-    );
+    return AsyncJobs.enqueue(new PaymentEventProcessor(crashDepth + 1), 0);
   }
 }

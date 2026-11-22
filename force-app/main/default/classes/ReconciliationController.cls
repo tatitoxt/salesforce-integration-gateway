@@ -81,10 +81,7 @@ public with sharing class ReconciliationController {
       return new List<Invoice__c>();
     }
     List<Invoice__c> candidates = new InvoiceSelector()
-      .selectOpenByCurrencyAsUser(
-        payment.Currency_Code__c,
-        SUGGESTION_POOL
-      );
+      .selectOpenByCurrencyAsUser(payment.Currency_Code__c, SUGGESTION_POOL);
     List<InvoiceByBalanceDistance> ranked = new List<InvoiceByBalanceDistance>();
     for (Invoice__c invoice : candidates) {
       ranked.add(new InvoiceByBalanceDistance(invoice, payment.Amount__c));
@@ -219,10 +216,9 @@ public with sharing class ReconciliationController {
 
     InvoiceByBalanceDistance(Invoice__c invoice, Decimal amount) {
       this.invoice = invoice;
-      this.distance =
-        invoice.Balance_Due__c == null
-          ? null
-          : Math.abs(invoice.Balance_Due__c - amount);
+      this.distance = invoice.Balance_Due__c == null
+        ? null
+        : Math.abs(invoice.Balance_Due__c - amount);
     }
 
     public Integer compareTo(Object other) {

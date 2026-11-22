@@ -8,6 +8,7 @@ const {
   disputeCreated,
   disputeClosed,
   invoicePaid,
+  paymentFailed,
   toMinorUnits,
   SCENARIOS,
   bulk
@@ -114,6 +115,8 @@ test("scenarios produce the documented event shapes", () => {
     "full-payment",
     "invoice-paid-upstream",
     "partial-payments",
+    "payment-declined",
+    "payment-declined-unknown",
     "refund",
     "refund-before-payment",
     "unknown-invoice"
@@ -136,3 +139,20 @@ test("bulk generates unique events for sequential invoices", () => {
     "INV-BULK-0199"
   );
 });
+
+test("paymentFailed builds a declined intent with failure details", () => {
+  const event = paymentFailed({
+    invoiceNumber: "INV-1",
+    amount: 150,
+    declineCode: "insufficient_funds"
+  });
+  assert.equal(event.type, "payment_intent.payment_failed");
+  const obj = event.data.object;
+  assert.equal(obj.object, "payment_intent");
+  assert.equal(obj.amount, 15000);
+  assert.equal(obj.metadata.invoice_number, "INV-1");
+  assert.equal(obj.last_payment_error.code, "insufficient_funds");
+  const noInvoice = paymentFailed({ amount: 10 });
+  assert.equal(noInvoice.data.object.metadata, undefined);
+});
+
