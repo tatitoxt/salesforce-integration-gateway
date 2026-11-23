@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<CustomField xmlns="http://soap.sforce.com/2006/04/metadata">
+  <fullName>Signature_Tolerance_Seconds__c</fullName>
+  <label>Signature Tolerance Seconds</label>
+  <required>false</required>
+  <defaultValue>300</defaultValue>
+  <precision>6</precision>
+  <scale>0</scale>
+  <type>Number</type>
+</CustomField>

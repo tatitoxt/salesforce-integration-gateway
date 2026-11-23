@@ -1,0 +1,96 @@
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  node:
+    name: Lint, format, LWC Jest, simulator tests and E2E
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: .nvmrc
+          cache: npm
+      - run: npm ci
+      - name: ESLint (LWC + simulator)
+        run: npm run lint
+      - name: Prettier (Apex, LWC, metadata, docs)
+        run: npm run format:check
+      - name: LWC Jest with coverage thresholds
+        run: npm run test:lwc
+      - name: Simulator unit + integration tests
+        run: npm run test:simulator
+      - name: Simulator CLI end-to-end test
+        run: npm run test:e2e
+      - name: Dependency audit (fail on high/critical)
+        run: npm audit --audit-level=high
+
+  code-analyzer:
+    name: Salesforce Code Analyzer (PMD) on Apex
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: .nvmrc
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+      - name: Install Salesforce CLI and Code Analyzer
+        run: |
+          npm install --global @salesforce/cli@2.70.7
+          sf plugins install @salesforce/sfdx-scanner@4.12.0
+      - name: Run PMD (fail on severity 1-2 findings)
+        run: >
+          sf scanner run
+          --target "force-app/main/default/classes,force-app/main/default/triggers"
+          --engine pmd
+          --format table
+          --severity-threshold 2
+
+  apex-org:
+    name: Deploy and run Apex tests in an org
+    runs-on: ubuntu-latest
+    env:
+      SFDX_AUTH_URL: ${{ secrets.SFDX_AUTH_URL }}
+    steps:
+      - name: Skip when SFDX_AUTH_URL is not configured
+        if: env.SFDX_AUTH_URL == ''
+        run: echo "::notice::SFDX_AUTH_URL secret not set; Apex deploy and tests were skipped."
+      - uses: actions/checkout@v4
+        if: env.SFDX_AUTH_URL != ''
+      - uses: actions/setup-node@v4
+        if: env.SFDX_AUTH_URL != ''
+        with:
+          node-version-file: .nvmrc
+      - name: Authenticate Dev Hub
+        if: env.SFDX_AUTH_URL != ''
+        run: |
+          npm install --global @salesforce/cli@2.70.7
+          echo "$SFDX_AUTH_URL" > ./sfdx-auth-url.txt
+          sf org login sfdx-url --sfdx-url-file ./sfdx-auth-url.txt --alias devhub --set-default-dev-hub
+          rm ./sfdx-auth-url.txt
+      - name: Create scratch org
+        if: env.SFDX_AUTH_URL != ''
+        run: sf org create scratch --definition-file config/project-scratch-def.json --alias ci --set-default --duration-days 1 --wait 15
+      - name: Deploy source
+        if: env.SFDX_AUTH_URL != ''
+        run: sf project deploy start --source-dir force-app --target-org ci --wait 30
+      - name: Run Apex tests with coverage
+        if: env.SFDX_AUTH_URL != ''
+        run: sf apex run test --target-org ci --test-level RunLocalTests --code-coverage --result-format human --wait 30
+      - name: Delete scratch org
+        if: always() && env.SFDX_AUTH_URL != ''
+        run: sf org delete scratch --target-org ci --no-prompt

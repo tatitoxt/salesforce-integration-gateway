@@ -1,0 +1,1196 @@
+@IsTest
+private class PaymentEventServiceTest {
+  @TestSetup
+  static void setup() {
+    GatewayTestData.configure(false);
+    GatewayTestData.invoices(3, 100, 'USD');
+  }
+
+  private static Invoice__c invoice(Integer index) {
+    return [
+      SELECT Id, Status__c, Amount_Paid__c, Amount_Refunded__c, Balance_Due__c
+      FROM Invoice__c
+      WHERE Invoice_Number__c = :GatewayTestData.invoiceNumber(index)
+    ];
+  }
+
+  private static List<Payment_Event__c> process(List<String> bodies) {
+    GatewayTestData.freezeClock();
+    List<Payment_Event__c> records = GatewayTestData.insertEvents(bodies);
+    new PaymentEventService().process(records);
+    return records;
+  }
+
+  @IsTest
+  static void fullPaymentMarksInvoicePaid() {
+    List<Payment_Event__c> records = process(
+      new List<String>{
+        GatewayTestData.paymentEvent(
+          'evt_1',
+          'pi_1',
+          GatewayTestData.invoiceNumber(0),
+          10000,
+          'usd'
+        )
+      }
+    );
+    Assert.areEqual(
+      'Processed',
+      GatewayTestData.reload(records[0].Id).Status__c
+    );
+    Payment__c payment = [
+      SELECT Status__c, Match_Method__c, Invoice__c, Amount__c
+      FROM Payment__c
+    ];
+    Assert.areEqual('Applied', payment.Status__c);
+    Assert.areEqual('Invoice_Number', payment.Match_Method__c);
+    Invoice__c updated = invoice(0);
+    Assert.areEqual('Paid', updated.Status__c);
+    Assert.areEqual(100, updated.Amount_Paid__c);
+    Assert.areEqual(0, updated.Balance_Due__c);
+  }
+
+  @IsTest
+  static void partialPaymentsAccumulate() {
+    String invoiceNumber = GatewayTestData.invoiceNumber(0);
+    process(
+      new List<String>{
+        GatewayTestData.paymentEvent(
+          'evt_p1',
+          'pi_p1',
+          invoiceNumber,
+          4000,
+          'usd'
+        )
+      }
+    );
+    Assert.areEqual('Partially_Paid', invoice(0).Status__c);
+    Assert.areEqual(60, invoice(0).Balance_Due__c);
+
+    process(
+      new List<String>{
+        GatewayTestData.paymentEvent(
+          'evt_p2',
+          'pi_p2',
+          invoiceNumber,
+          6000,
+          'usd'
+        )
+      }
+    );
+    Assert.areEqual('Paid', invoice(0).Status__c);
+  }
+
+  @IsTest
+  static void invoiceNumberMatchIsCaseInsensitive() {
+    process(
+      new List<String>{
+        GatewayTestData.paymentEvent(
+          'evt_ci',
+          'pi_ci',
+          GatewayTestData.invoiceNumber(0).toLowerCase(),
+          10000,
+          'usd'
+        )
+      }
+    );
+    Assert.areEqual('Paid', invoice(0).Status__c);
+  }
+
+  @IsTest
+  static void overpaymentIsAppliedButFlaggedForReview() {
+    List<Payment_Event__c> records = process(
+      new List<String>{
+        GatewayTestData.paymentEvent(
+          'evt_over',
+          'pi_over',
+          GatewayTestData.invoiceNumber(0),
+          12000,
+          'usd'
+        )
+      }
+    );
+    Payment_Event__c record = GatewayTestData.reload(records[0].Id);
+    Assert.areEqual('Needs_Review', record.Status__c);
+    Assert.areEqual(
+      PaymentEventService.REASON_OVERPAYMENT,
+      record.Exception_Reason__c
+    );
+    Assert.areEqual('Overpaid', invoice(0).Status__c);
+  }
+
+  @IsTest
+  static void unknownOrMissingInvoiceGoesToExceptionQueue() {
+    List<Payment_Event__c> records = process(
+      new List<String>{
+        GatewayTestData.paymentEvent(
+          'evt_unknown',
+          'pi_unknown',
+          'INV-DOES-NOT-EXIST',
+          1000,
+          'usd'
+        ),
+        GatewayTestData.paymentEvent('evt_noref', 'pi_noref', null, 1000, 'usd')
+      }
+    );
+    Payment_Event__c unknown = GatewayTestData.reload(records[0].Id);
+    Payment_Event__c noRef = GatewayTestData.reload(records[1].Id);
+    Assert.areEqual('Needs_Review', unknown.Status__c);
+    Assert.areEqual(
+      PaymentEventService.REASON_INVOICE_NOT_FOUND,
+      unknown.Exception_Reason__c
+    );
+    Assert.areEqual(
+      PaymentEventService.REASON_MISSING_INVOICE_REFERENCE,
+      noRef.Exception_Reason__c
+    );
+    Assert.areEqual(
+      2,
+      [
+        SELECT COUNT()
+        FROM Payment__c
+        WHERE Status__c = 'Unmatched' AND Invoice__c = NULL
+      ]
+    );
+  }
+
+  @IsTest
+  static void currencyMismatchAndClosedInvoiceAreExceptions() {
+    Invoice__c voided = invoice(1);
+    voided.Status__c = 'Void';
+    update voided;
+    List<Payment_Event__c> records = process(
+      new List<String>{
+        GatewayTestData.paymentEvent(
+          'evt_eur',
+          'pi_eur',
+          GatewayTestData.invoiceNumber(0),
+          10000,
+          'eur'
+        ),
+        GatewayTestData.paymentEvent(
+          'evt_void',
+          'pi_void',
+          GatewayTestData.invoiceNumber(1),
+          10000,
+          'usd'
+        )
+      }
+    );
+    Assert.areEqual(
+      PaymentEventService.REASON_CURRENCY_MISMATCH,
+      GatewayTestData.reload(records[0].Id).Exception_Reason__c
+    );
+    Assert.areEqual(
+      PaymentEventService.REASON_INVOICE_NOT_PAYABLE,
+      GatewayTestData.reload(records[1].Id).Exception_Reason__c
+    );
+    Assert.areEqual(
+      2,
+      [SELECT COUNT() FROM Payment__c WHERE Status__c = 'Exception']
+    );
+    Assert.areEqual(
+      'Open',
+      invoice(0).Status__c,
+      'exception payments do not roll up'
+    );
+  }
+
+  @IsTest
+  static void refundReducesAmountPaid() {
+    String invoiceNumber = GatewayTestData.invoiceNumber(0);
+    process(
+      new List<String>{
+        GatewayTestData.paymentEvent(
+          'evt_pay',
+          'pi_r',
+          invoiceNumber,
+          10000,
+          'usd'
+        )
+      }
+    );
+    List<Payment_Event__c> records = process(
+      new List<String>{
+        GatewayTestData.refundEvent('evt_ref', 're_1', 'pi_r', 2500, 'usd')
+      }
+    );
+    Assert.areEqual(
+      'Processed',
+      GatewayTestData.reload(records[0].Id).Status__c
+    );
+    Payment__c refund = [
+      SELECT Status__c, Match_Method__c, Original_Payment__c, Invoice__c
+      FROM Payment__c
+      WHERE Type__c = 'Refund'
+    ];
+    Assert.areEqual('Applied', refund.Status__c);
+    Assert.areEqual('Refund_Link', refund.Match_Method__c);
+    Invoice__c updated = invoice(0);
+    Assert.areEqual(75, updated.Amount_Paid__c);
+    Assert.areEqual(25, updated.Amount_Refunded__c);
+    Assert.areEqual('Partially_Paid', updated.Status__c);
+  }
+
+  @IsTest
+  static void paymentAndRefundInSameBatchAreApplied() {
+    process(
+      new List<String>{
+        GatewayTestData.refundEvent('evt_ref_b', 're_b', 'pi_b', 10000, 'usd'),
+        GatewayTestData.paymentEvent(
+          'evt_pay_b',
+          'pi_b',
+          GatewayTestData.invoiceNumber(0),
+          10000,
+          'usd'
+        )
+      }
+    );
+    Invoice__c updated = invoice(0);
+    Assert.areEqual(0, updated.Amount_Paid__c);
+    Assert.areEqual('Open', updated.Status__c);
+  }
+
+  @IsTest
+  static void refundInDifferentCurrencyIsAnException() {
+    process(
+      new List<String>{
+        GatewayTestData.paymentEvent(
+          'evt_pay',
+          'pi_cur',
+          GatewayTestData.invoiceNumber(0),
+          10000,
+          'usd'
+        )
+      }
+    );
+    List<Payment_Event__c> records = process(
+      new List<String>{
+        GatewayTestData.refundEvent('evt_ref', 're_cur', 'pi_cur', 2500, 'eur')
+      }
+    );
+    Payment_Event__c event = GatewayTestData.reload(records[0].Id);
+    Assert.areEqual('Needs_Review', event.Status__c);
+    Assert.areEqual(
+      PaymentEventService.REASON_CURRENCY_MISMATCH,
+      event.Exception_Reason__c
+    );
+    Assert.areEqual(
+      'Exception',
+      [SELECT Status__c FROM Payment__c WHERE Type__c = 'Refund'].Status__c
+    );
+    Invoice__c updated = invoice(0);
+    Assert.areEqual(100, updated.Amount_Paid__c, 'refund not applied');
+    Assert.areEqual('Paid', updated.Status__c);
+  }
+
+  @IsTest
+  static void refundExceedingPaymentIsAnException() {
+    process(
+      new List<String>{
+        GatewayTestData.paymentEvent(
+          'evt_pay',
+          'pi_x',
+          GatewayTestData.invoiceNumber(0),
+          5000,
+          'usd'
+        )
+      }
+    );
+    List<Payment_Event__c> records = process(
+      new List<String>{
+        GatewayTestData.refundEvent('evt_ref', 're_x', 'pi_x', 6000, 'usd')
+      }
+    );
+    Assert.areEqual(
+      PaymentEventService.REASON_REFUND_EXCEEDS_PAYMENT,
+      GatewayTestData.reload(records[0].Id).Exception_Reason__c
+    );
+    Assert.areEqual(50, invoice(0).Amount_Paid__c);
+  }
+
+  @IsTest
+  static void refundBeforePaymentIsRetriedWithBackoffThenDeadLettered() {
+    List<Payment_Event__c> records = process(
+      new List<String>{
+        GatewayTestData.refundEvent(
+          'evt_early',
+          're_early',
+          'pi_later',
+          1000,
+          'usd'
+        )
+      }
+    );
+    Payment_Event__c record = GatewayTestData.reload(records[0].Id);
+    Assert.areEqual('Retry_Scheduled', record.Status__c);
+    Assert.areEqual(1, record.Attempts__c);
+    Assert.areEqual(
+      PaymentEventService.REASON_ORIGINAL_NOT_FOUND,
+      record.Exception_Reason__c
+    );
+    Assert.areEqual(
+      GatewayClock.now().addMinutes(2),
+      record.Next_Attempt_At__c
+    );
+
+    // Max_Event_Attempts__c is 3 in the fixture settings.
+    new PaymentEventService().process(new List<Payment_Event__c>{ record });
+    Assert.areEqual(
+      'Retry_Scheduled',
+      GatewayTestData.reload(record.Id).Status__c
+    );
+    Assert.areEqual(
+      GatewayClock.now().addMinutes(4),
+      GatewayTestData.reload(record.Id).Next_Attempt_At__c
+    );
+    new PaymentEventService().process(new List<Payment_Event__c>{ record });
+    Payment_Event__c exhausted = GatewayTestData.reload(record.Id);
+    Assert.areEqual('Dead_Letter', exhausted.Status__c);
+    Assert.areEqual(3, exhausted.Attempts__c);
+    Assert.isNull(exhausted.Next_Attempt_At__c);
+  }
+
+  @IsTest
+  static void invalidStoredPayloadIsDeadLettered() {
+    Payment_Event__c record = new Payment_Event__c(
+      External_Event_Id__c = 'evt_corrupt',
+      Event_Type__c = 'payment_intent.succeeded',
+      Status__c = 'Received',
+      Attempts__c = 0,
+      Payload__c = '{"id":"evt_corrupt","type":"payment_intent.succeeded","data":{"object":{"id":"pi"}}}'
+    );
+    TriggerHandler.bypass('PaymentEventTriggerHandler');
+    insert record;
+    new PaymentEventService().process(new List<Payment_Event__c>{ record });
+    Payment_Event__c reloaded = GatewayTestData.reload(record.Id);
+    Assert.areEqual('Dead_Letter', reloaded.Status__c);
+    Assert.areEqual(
+      PaymentEventService.REASON_INVALID_PAYLOAD,
+      reloaded.Exception_Reason__c
+    );
+  }
+
+  @IsTest
+  static void unsupportedEventTypesAreIgnored() {
+    List<Payment_Event__c> records = process(
+      new List<String>{
+        GatewayTestData.envelope(
+          'evt_cust',
+          'customer.created',
+          new Map<String, Object>{ 'id' => 'cus_1' }
+        )
+      }
+    );
+    Assert.areEqual('Ignored', GatewayTestData.reload(records[0].Id).Status__c);
+  }
+
+  @IsTest
+  static void samePaymentInTwoEventsIsRecordedOnce() {
+    String invoiceNumber = GatewayTestData.invoiceNumber(0);
+    List<Payment_Event__c> records = process(
+      new List<String>{
+        GatewayTestData.paymentEvent(
+          'evt_a',
+          'pi_same',
+          invoiceNumber,
+          10000,
+          'usd'
+        ),
+        GatewayTestData.paymentEvent(
+          'evt_b',
+          'pi_same',
+          invoiceNumber,
+          10000,
+          'usd'
+        )
+      }
+    );
+    Assert.areEqual(1, [SELECT COUNT() FROM Payment__c]);
+    Assert.areEqual(
+      'Processed',
+      GatewayTestData.reload(records[1].Id).Status__c
+    );
+    Assert.areEqual('Paid', invoice(0).Status__c);
+  }
+
+  @IsTest
+  static void disputeOnAppliedPaymentIsRecordedForReview() {
+    List<Payment_Event__c> records = process(
+      new List<String>{
+        GatewayTestData.paymentEvent(
+          'evt_p',
+          'pi_disp',
+          GatewayTestData.invoiceNumber(0),
+          10000,
+          'usd'
+        ),
+        GatewayTestData.disputeEvent('evt_d', 'dp_1', 'pi_disp', 10000, 'usd')
+      }
+    );
+    Payment__c dispute = [
+      SELECT Status__c, Exception_Reason__c, Original_Payment__c, Invoice__c
+      FROM Payment__c
+      WHERE Type__c = 'Dispute'
+    ];
+    Assert.areEqual('Exception', dispute.Status__c);
+    Assert.areEqual(
+      PaymentEventService.REASON_DISPUTE_OPENED,
+      dispute.Exception_Reason__c
+    );
+    Assert.isNotNull(dispute.Original_Payment__c);
+    Assert.isNotNull(dispute.Invoice__c);
+    Payment_Event__c record = GatewayTestData.reload(records[1].Id);
+    Assert.areEqual('Needs_Review', record.Status__c);
+    Assert.areEqual(
+      PaymentEventService.REASON_DISPUTE_OPENED,
+      record.Exception_Reason__c
+    );
+  }
+
+  @IsTest
+  static void disputeForUnknownPaymentRetries() {
+    List<Payment_Event__c> records = process(
+      new List<String>{
+        GatewayTestData.disputeEvent(
+          'evt_d',
+          'dp_orphan',
+          'pi_missing',
+          2500,
+          'usd'
+        )
+      }
+    );
+    Payment_Event__c record = GatewayTestData.reload(records[0].Id);
+    Assert.areEqual('Retry_Scheduled', record.Status__c);
+    Assert.areEqual(
+      PaymentEventService.REASON_ORIGINAL_NOT_FOUND,
+      record.Exception_Reason__c
+    );
+  }
+
+  @IsTest
+  static void duplicateDisputeIsRecordedOnce() {
+    List<Payment_Event__c> records = process(
+      new List<String>{
+        GatewayTestData.paymentEvent(
+          'evt_p',
+          'pi_dup',
+          GatewayTestData.invoiceNumber(0),
+          5000,
+          'usd'
+        ),
+        GatewayTestData.disputeEvent('evt_d1', 'dp_dup', 'pi_dup', 5000, 'usd'),
+        GatewayTestData.disputeEvent('evt_d2', 'dp_dup', 'pi_dup', 5000, 'usd')
+      }
+    );
+    Assert.areEqual(
+      1,
+      [SELECT COUNT() FROM Payment__c WHERE Type__c = 'Dispute']
+    );
+    Assert.areEqual(
+      'Processed',
+      GatewayTestData.reload(records[2].Id).Status__c
+    );
+  }
+
+  @IsTest
+  static void disputeClosedWonResolvesRecordedDispute() {
+    List<Payment_Event__c> records = process(
+      new List<String>{
+        GatewayTestData.paymentEvent(
+          'evt_p',
+          'pi_dw',
+          GatewayTestData.invoiceNumber(0),
+          10000,
+          'usd'
+        ),
+        GatewayTestData.disputeEvent('evt_d', 'dp_dw', 'pi_dw', 10000, 'usd'),
+        GatewayTestData.disputeClosedEvent(
+          'evt_dc',
+          'dp_dw',
+          'pi_dw',
+          'won',
+          10000,
+          'usd'
+        )
+      }
+    );
+    Payment__c dispute = [
+      SELECT Status__c, Exception_Reason__c
+      FROM Payment__c
+      WHERE Type__c = 'Dispute'
+    ];
+    Assert.areEqual('Applied', dispute.Status__c);
+    Assert.areEqual(
+      PaymentEventService.REASON_DISPUTE_WON,
+      dispute.Exception_Reason__c
+    );
+    Assert.areEqual(
+      'Processed',
+      GatewayTestData.reload(records[2].Id).Status__c
+    );
+  }
+
+  @IsTest
+  static void disputeClosedLostKeepsDisputeForReview() {
+    List<Payment_Event__c> records = process(
+      new List<String>{
+        GatewayTestData.paymentEvent(
+          'evt_p',
+          'pi_dl',
+          GatewayTestData.invoiceNumber(0),
+          10000,
+          'usd'
+        ),
+        GatewayTestData.disputeEvent('evt_d', 'dp_dl', 'pi_dl', 10000, 'usd'),
+        GatewayTestData.disputeClosedEvent(
+          'evt_dc',
+          'dp_dl',
+          'pi_dl',
+          'lost',
+          10000,
+          'usd'
+        )
+      }
+    );
+    Payment__c dispute = [
+      SELECT Status__c, Exception_Reason__c
+      FROM Payment__c
+      WHERE Type__c = 'Dispute'
+    ];
+    Assert.areEqual('Exception', dispute.Status__c);
+    Assert.areEqual(
+      PaymentEventService.REASON_DISPUTE_LOST,
+      dispute.Exception_Reason__c
+    );
+    Payment_Event__c record = GatewayTestData.reload(records[2].Id);
+    Assert.areEqual('Needs_Review', record.Status__c);
+    Assert.areEqual(
+      PaymentEventService.REASON_DISPUTE_LOST,
+      record.Exception_Reason__c
+    );
+  }
+
+  @IsTest
+  static void disputeClosedWithoutRecordedDisputeRetries() {
+    List<Payment_Event__c> records = process(
+      new List<String>{
+        GatewayTestData.disputeClosedEvent(
+          'evt_dc',
+          'dp_orphan',
+          'pi_missing',
+          'won',
+          2500,
+          'usd'
+        )
+      }
+    );
+    Payment_Event__c record = GatewayTestData.reload(records[0].Id);
+    Assert.areEqual('Retry_Scheduled', record.Status__c);
+    Assert.areEqual(
+      PaymentEventService.REASON_DISPUTE_NOT_FOUND,
+      record.Exception_Reason__c
+    );
+  }
+
+  @IsTest
+  static void disputeClosedIsIdempotentAfterResolution() {
+    List<Payment_Event__c> records = process(
+      new List<String>{
+        GatewayTestData.paymentEvent(
+          'evt_p',
+          'pi_did',
+          GatewayTestData.invoiceNumber(0),
+          4000,
+          'usd'
+        ),
+        GatewayTestData.disputeEvent('evt_d', 'dp_did', 'pi_did', 4000, 'usd'),
+        GatewayTestData.disputeClosedEvent(
+          'evt_dc1',
+          'dp_did',
+          'pi_did',
+          'won',
+          4000,
+          'usd'
+        ),
+        GatewayTestData.disputeClosedEvent(
+          'evt_dc2',
+          'dp_did',
+          'pi_did',
+          'lost',
+          4000,
+          'usd'
+        )
+      }
+    );
+    Payment__c dispute = [
+      SELECT Status__c, Exception_Reason__c
+      FROM Payment__c
+      WHERE Type__c = 'Dispute'
+    ];
+    Assert.areEqual('Applied', dispute.Status__c);
+    Assert.areEqual(
+      PaymentEventService.REASON_DISPUTE_WON,
+      dispute.Exception_Reason__c
+    );
+    Assert.areEqual(
+      'Processed',
+      GatewayTestData.reload(records[3].Id).Status__c
+    );
+  }
+
+  @IsTest
+  static void invoicePaidOnOpenInvoiceNeedsReview() {
+    List<Payment_Event__c> records = process(
+      new List<String>{
+        GatewayTestData.invoicePaidEvent(
+          'evt_ip',
+          'in_1',
+          GatewayTestData.invoiceNumber(0),
+          10000,
+          'usd'
+        )
+      }
+    );
+    Payment_Event__c record = GatewayTestData.reload(records[0].Id);
+    Assert.areEqual('Needs_Review', record.Status__c);
+    Assert.areEqual(
+      PaymentEventService.REASON_INVOICE_BALANCE_REMAINING,
+      record.Exception_Reason__c
+    );
+    Assert.areEqual(0, [SELECT COUNT() FROM Payment__c]);
+  }
+
+  @IsTest
+  static void invoicePaidOnSettledInvoiceIsProcessed() {
+    List<Payment_Event__c> records = process(
+      new List<String>{
+        GatewayTestData.paymentEvent(
+          'evt_p',
+          'pi_settle',
+          GatewayTestData.invoiceNumber(0),
+          10000,
+          'usd'
+        ),
+        GatewayTestData.invoicePaidEvent(
+          'evt_ip',
+          'in_1',
+          GatewayTestData.invoiceNumber(0),
+          10000,
+          'usd'
+        )
+      }
+    );
+    Assert.areEqual(
+      'Processed',
+      GatewayTestData.reload(records[1].Id).Status__c
+    );
+  }
+
+  @IsTest
+  static void invoicePaidForUnknownInvoiceNeedsReview() {
+    List<Payment_Event__c> records = process(
+      new List<String>{
+        GatewayTestData.invoicePaidEvent(
+          'evt_ip',
+          'in_x',
+          'INV-DOES-NOT-EXIST',
+          100,
+          'usd'
+        )
+      }
+    );
+    Payment_Event__c record = GatewayTestData.reload(records[0].Id);
+    Assert.areEqual('Needs_Review', record.Status__c);
+    Assert.areEqual(
+      PaymentEventService.REASON_INVOICE_NOT_FOUND,
+      record.Exception_Reason__c
+    );
+  }
+
+  @IsTest
+  static void amountOnlyPaymentMatchesTheSingleOpenInvoice() {
+    // Leave only invoice 0 payable at exactly $100 so the amount fallback is
+    // unambiguous.
+    Invoice__c paid = invoice(1);
+    paid.Status__c = 'Paid';
+    Invoice__c voided = invoice(2);
+    voided.Status__c = 'Void';
+    update new List<Invoice__c>{ paid, voided };
+
+    List<Payment_Event__c> records = process(
+      new List<String>{
+        GatewayTestData.paymentEvent('evt_amt', 'pi_amt', null, 10000, 'usd')
+      }
+    );
+    Assert.areEqual(
+      'Processed',
+      GatewayTestData.reload(records[0].Id).Status__c
+    );
+    Payment__c payment = [
+      SELECT Status__c, Match_Method__c, Invoice__c
+      FROM Payment__c
+    ];
+    Assert.areEqual('Applied', payment.Status__c);
+    Assert.areEqual('Exact_Amount', payment.Match_Method__c);
+    Assert.areEqual(invoice(0).Id, payment.Invoice__c);
+    Assert.areEqual('Paid', invoice(0).Status__c);
+  }
+
+  @IsTest
+  static void amountOnlyPaymentStaysUnmatchedWhenAmbiguous() {
+    // All three setup invoices are payable at $100: no unique candidate.
+    List<Payment_Event__c> records = process(
+      new List<String>{
+        GatewayTestData.paymentEvent('evt_amb', 'pi_amb', null, 10000, 'usd')
+      }
+    );
+    Payment_Event__c record = GatewayTestData.reload(records[0].Id);
+    Assert.areEqual('Needs_Review', record.Status__c);
+    Assert.areEqual(
+      PaymentEventService.REASON_MISSING_INVOICE_REFERENCE,
+      record.Exception_Reason__c
+    );
+    Assert.areEqual(
+      1,
+      [
+        SELECT COUNT()
+        FROM Payment__c
+        WHERE Status__c = 'Unmatched' AND Invoice__c = NULL
+      ]
+    );
+  }
+
+  @IsTest
+  static void failedPaymentIsQueuedForReviewWithDeclineDetail() {
+    List<Payment_Event__c> records = process(
+      new List<String>{
+        GatewayTestData.paymentFailedEvent(
+          'evt_f',
+          'pi_fail',
+          15000,
+          'usd',
+          GatewayTestData.invoiceNumber(0),
+          'card_declined',
+          'Your card was declined.'
+        )
+      }
+    );
+    Payment_Event__c record = GatewayTestData.reload(records[0].Id);
+    Assert.areEqual('Needs_Review', record.Status__c);
+    Assert.areEqual(
+      PaymentEventService.REASON_PAYMENT_FAILED,
+      record.Exception_Reason__c
+    );
+    Assert.isTrue(
+      record.Last_Error__c.contains('card_declined'),
+      'expected decline code in the review detail: ' + record.Last_Error__c
+    );
+    Assert.isTrue(
+      record.Last_Error__c.contains('pi_fail'),
+      'expected intent id in the review detail: ' + record.Last_Error__c
+    );
+    // No money moved: nothing was recorded against the invoice.
+    Assert.areEqual(0, [SELECT COUNT() FROM Payment__c]);
+    Assert.areEqual('Open', invoice(0).Status__c);
+  }
+
+  @IsTest
+  static void failedPaymentWithoutInvoiceStillReviews() {
+    List<Payment_Event__c> records = process(
+      new List<String>{
+        GatewayTestData.paymentFailedEvent(
+          'evt_f2',
+          'pi_orphan',
+          500,
+          'usd',
+          null,
+          'insufficient_funds',
+          null
+        )
+      }
+    );
+    Payment_Event__c record = GatewayTestData.reload(records[0].Id);
+    Assert.areEqual('Needs_Review', record.Status__c);
+    Assert.areEqual(
+      PaymentEventService.REASON_PAYMENT_FAILED,
+      record.Exception_Reason__c
+    );
+    Assert.isTrue(record.Last_Error__c.contains('insufficient_funds'));
+  }
+
+  @IsTest
+  static void chargeRefundedAppliesTheDelta() {
+    process(
+      new List<String>{
+        GatewayTestData.paymentEvent(
+          'evt_pay',
+          'pi_cr',
+          GatewayTestData.invoiceNumber(0),
+          10000,
+          'usd'
+        )
+      }
+    );
+    List<Payment_Event__c> records = process(
+      new List<String>{
+        GatewayTestData.chargeRefundedEvent(
+          'evt_cr',
+          'ch_cr',
+          'pi_cr',
+          10000,
+          2500,
+          'usd'
+        )
+      }
+    );
+    Assert.areEqual(
+      'Processed',
+      GatewayTestData.reload(records[0].Id).Status__c
+    );
+    Payment__c refund = [
+      SELECT Status__c, Match_Method__c, Amount__c
+      FROM Payment__c
+      WHERE Type__c = 'Refund'
+    ];
+    Assert.areEqual('Applied', refund.Status__c);
+    Assert.areEqual('Charge_Refunded', refund.Match_Method__c);
+    Assert.areEqual(25, refund.Amount__c);
+    Invoice__c updated = invoice(0);
+    Assert.areEqual(75, updated.Amount_Paid__c);
+    Assert.areEqual(25, updated.Amount_Refunded__c);
+  }
+
+  @IsTest
+  static void chargeRefundedReplayIsIdempotent() {
+    String invoiceNumber = GatewayTestData.invoiceNumber(1);
+    process(
+      new List<String>{
+        GatewayTestData.paymentEvent(
+          'evt_pay',
+          'pi_rp',
+          invoiceNumber,
+          10000,
+          'usd'
+        )
+      }
+    );
+    process(
+      new List<String>{
+        GatewayTestData.chargeRefundedEvent(
+          'evt_cr1',
+          'ch_rp',
+          'pi_rp',
+          10000,
+          4000,
+          'usd'
+        )
+      }
+    );
+    List<Payment_Event__c> replay = process(
+      new List<String>{
+        GatewayTestData.chargeRefundedEvent(
+          'evt_cr2',
+          'ch_rp',
+          'pi_rp',
+          10000,
+          4000,
+          'usd'
+        )
+      }
+    );
+    Assert.areEqual(
+      'Processed',
+      GatewayTestData.reload(replay[0].Id).Status__c
+    );
+    Assert.areEqual(
+      1,
+      [SELECT COUNT() FROM Payment__c WHERE Type__c = 'Refund'],
+      'a replayed cumulative total must not record a second refund'
+    );
+    Assert.areEqual(40, invoice(1).Amount_Refunded__c);
+  }
+
+  @IsTest
+  static void chargeRefundedAfterPartialRefundRecordsOnlyTheDelta() {
+    String invoiceNumber = GatewayTestData.invoiceNumber(2);
+    process(
+      new List<String>{
+        GatewayTestData.paymentEvent(
+          'evt_pay',
+          'pi_dd',
+          invoiceNumber,
+          10000,
+          'usd'
+        )
+      }
+    );
+    process(
+      new List<String>{
+        GatewayTestData.refundEvent('evt_ref', 're_1', 'pi_dd', 2000, 'usd')
+      }
+    );
+    process(
+      new List<String>{
+        GatewayTestData.chargeRefundedEvent(
+          'evt_cr',
+          'ch_dd',
+          'pi_dd',
+          10000,
+          5000,
+          'usd'
+        )
+      }
+    );
+    List<Payment__c> refunds = [
+      SELECT Amount__c
+      FROM Payment__c
+      WHERE Type__c = 'Refund'
+      ORDER BY Amount__c
+    ];
+    Assert.areEqual(2, refunds.size());
+    Assert.areEqual(20, refunds[0].Amount__c);
+    Assert.areEqual(
+      30,
+      refunds[1].Amount__c,
+      'only the delta over the refunded total is recorded'
+    );
+    Assert.areEqual(50, invoice(2).Amount_Refunded__c);
+  }
+
+  @IsTest
+  static void chargeRefundedBelowLedgerNeedsReview() {
+    process(
+      new List<String>{
+        GatewayTestData.paymentEvent(
+          'evt_pay',
+          'pi_bl',
+          GatewayTestData.invoiceNumber(0),
+          10000,
+          'usd'
+        )
+      }
+    );
+    process(
+      new List<String>{
+        GatewayTestData.refundEvent('evt_ref', 're_bl', 'pi_bl', 5000, 'usd')
+      }
+    );
+    List<Payment_Event__c> records = process(
+      new List<String>{
+        GatewayTestData.chargeRefundedEvent(
+          'evt_cr',
+          'ch_bl',
+          'pi_bl',
+          10000,
+          2500,
+          'usd'
+        )
+      }
+    );
+    Payment_Event__c record = GatewayTestData.reload(records[0].Id);
+    Assert.areEqual('Needs_Review', record.Status__c);
+    Assert.areEqual(
+      PaymentEventService.REASON_REFUND_BELOW_LEDGER,
+      record.Exception_Reason__c
+    );
+    Assert.areEqual(50, invoice(0).Amount_Refunded__c, 'ledger untouched');
+  }
+
+  @IsTest
+  static void chargeRefundedBeforePaymentIsRetried() {
+    List<Payment_Event__c> records = process(
+      new List<String>{
+        GatewayTestData.chargeRefundedEvent(
+          'evt_cr',
+          'ch_late',
+          'pi_late',
+          10000,
+          3000,
+          'usd'
+        )
+      }
+    );
+    Assert.areEqual(
+      'Retry_Scheduled',
+      GatewayTestData.reload(records[0].Id).Status__c
+    );
+  }
+
+  @IsTest
+  static void refundCreatedAfterChargeRefundDoesNotDoubleCount() {
+    process(
+      new List<String>{
+        GatewayTestData.paymentEvent(
+          'evt_pay',
+          'pi_dc',
+          GatewayTestData.invoiceNumber(0),
+          10000,
+          'usd'
+        )
+      }
+    );
+    process(
+      new List<String>{
+        GatewayTestData.chargeRefundedEvent(
+          'evt_cr',
+          'ch_dc',
+          'pi_dc',
+          10000,
+          2500,
+          'usd'
+        )
+      }
+    );
+    List<Payment_Event__c> records = process(
+      new List<String>{
+        GatewayTestData.refundEvent('evt_ref', 're_dc', 'pi_dc', 2500, 'usd')
+      }
+    );
+    Assert.areEqual(
+      'Processed',
+      GatewayTestData.reload(records[0].Id).Status__c,
+      'covered by the charge.refunded ledger'
+    );
+    Assert.areEqual(
+      25,
+      invoice(0).Amount_Refunded__c,
+      'the same money must not be refunded twice'
+    );
+  }
+
+  @IsTest
+  static void duplicateLostDisputeClosuresInOneBatchDoNotFail() {
+    process(
+      new List<String>{
+        GatewayTestData.paymentEvent(
+          'evt_pay',
+          'pi_dl2',
+          GatewayTestData.invoiceNumber(0),
+          10000,
+          'usd'
+        ),
+        GatewayTestData.disputeEvent('evt_d', 'dp_dl2', 'pi_dl2', 10000, 'usd')
+      }
+    );
+    List<Payment_Event__c> records = process(
+      new List<String>{
+        GatewayTestData.disputeClosedEvent(
+          'evt_c1',
+          'dp_dl2',
+          'pi_dl2',
+          'lost',
+          10000,
+          'usd'
+        ),
+        GatewayTestData.disputeClosedEvent(
+          'evt_c2',
+          'dp_dl2',
+          'pi_dl2',
+          'lost',
+          10000,
+          'usd'
+        )
+      }
+    );
+    Payment_Event__c first = GatewayTestData.reload(records[0].Id);
+    Assert.areEqual('Needs_Review', first.Status__c);
+    Assert.areEqual(
+      PaymentEventService.REASON_DISPUTE_LOST,
+      first.Exception_Reason__c
+    );
+    Assert.areEqual(
+      'Processed',
+      GatewayTestData.reload(records[1].Id).Status__c
+    );
+  }
+
+  @IsTest
+  static void disputeWonDoesNotChangeInvoiceTotals() {
+    process(
+      new List<String>{
+        GatewayTestData.paymentEvent(
+          'evt_pay',
+          'pi_w2',
+          GatewayTestData.invoiceNumber(0),
+          10000,
+          'usd'
+        ),
+        GatewayTestData.disputeEvent('evt_d', 'dp_w2', 'pi_w2', 5000, 'usd'),
+        GatewayTestData.disputeClosedEvent(
+          'evt_c',
+          'dp_w2',
+          'pi_w2',
+          'won',
+          5000,
+          'usd'
+        )
+      }
+    );
+    Invoice__c updated = invoice(0);
+    Assert.areEqual(100, updated.Amount_Paid__c);
+    Assert.areEqual(0, updated.Amount_Refunded__c);
+    Assert.areEqual('Paid', updated.Status__c);
+  }
+
+  @IsTest
+  static void secondAmountOnlyPaymentDoesNotReuseTheClaimedInvoice() {
+    process(
+      new List<String>{
+        GatewayTestData.paymentEvent('evt_p1', 'pi_am1', null, 5000, 'usd'),
+        GatewayTestData.paymentEvent('evt_p2', 'pi_am2', null, 5000, 'usd')
+      }
+    );
+    Invoice__c invoice = invoice(0);
+    Assert.areEqual(50, invoice.Amount_Paid__c, 'claimed once');
+    Assert.areEqual('Paid', invoice.Status__c);
+    Assert.areEqual(
+      1,
+      [
+        SELECT COUNT()
+        FROM Payment__c
+        WHERE Status__c = 'Applied' AND Match_Method__c = 'Exact_Amount'
+      ],
+      'only the first payment claims the invoice'
+    );
+    Assert.areEqual(
+      1,
+      [SELECT COUNT() FROM Payment__c WHERE Status__c = 'Unmatched'],
+      'the second payment goes back to the exceptions queue'
+    );
+  }
+
+  @IsTest
+  static void invoicePaidWithCurrencyMismatchNeedsReview() {
+    String invoiceNumber = GatewayTestData.invoiceNumber(0);
+    process(
+      new List<String>{
+        GatewayTestData.paymentEvent(
+          'evt_pay',
+          'pi_ip',
+          invoiceNumber,
+          5000,
+          'usd'
+        )
+      }
+    );
+    List<Payment_Event__c> records = process(
+      new List<String>{
+        GatewayTestData.invoicePaidEvent(
+          'evt_ip',
+          'in_1',
+          invoiceNumber,
+          5000,
+          'eur'
+        )
+      }
+    );
+    Payment_Event__c event = GatewayTestData.reload(records[0].Id);
+    Assert.areEqual('Needs_Review', event.Status__c);
+    Assert.areEqual(
+      PaymentEventService.REASON_CURRENCY_MISMATCH,
+      event.Exception_Reason__c
+    );
+  }
+}
